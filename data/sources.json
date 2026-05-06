@@ -1,0 +1,22 @@
+{
+  "feeds": [
+    {
+      "name": "DTF — все материалы",
+      "category": "mixed",
+      "language": "ru",
+      "url": "https://dtf.ru/rss/all"
+    },
+    {
+      "name": "IGN",
+      "category": "mixed",
+      "language": "en",
+      "url": "https://feeds.feedburner.com/ign/all"
+    },
+    {
+      "name": "IndieWire",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://www.indiewire.com/feed/"
+    }
+  ]
+}

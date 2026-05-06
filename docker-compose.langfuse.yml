@@ -1,0 +1,11 @@
+# Langfuse v3 compose is intentionally not copied here.
+# Use the official current compose file, then run it next to this project.
+# See scripts/setup-langfuse-compose.sh
+#
+# Suggested workflow:
+#   ./scripts/setup-langfuse-compose.sh
+#   docker compose -f vendor/langfuse/docker-compose.yml up -d
+#   docker compose up -d --build
+#
+# Keep WatchQuest and Langfuse separate so Langfuse can be upgraded independently.
+services: {}

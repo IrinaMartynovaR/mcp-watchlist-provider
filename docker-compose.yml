@@ -1,0 +1,17 @@
+services:
+  watchquest-mcp:
+    build: .
+    container_name: watchquest-mcp
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+    stdin_open: true
+    tty: true
+    environment:
+      WATCHQUEST_DATA_DIR: /app/data
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://host.docker.internal:3000}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

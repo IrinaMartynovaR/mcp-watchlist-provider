@@ -1,0 +1,22 @@
+{
+  "likes": [
+    "sci-fi",
+    "detective",
+    "psychological thriller",
+    "cozy games",
+    "RPG",
+    "story-rich games",
+    "beautiful visual style",
+    "slow burn series"
+  ],
+  "dislikes": [
+    "hard horror",
+    "sports games",
+    "battle royale",
+    "very long grind",
+    "cheap jumpscares"
+  ],
+  "platforms": ["PC", "Nintendo Switch", "Netflix", "HBO", "Apple TV+"],
+  "interface_language": "ru",
+  "source_languages": ["ru", "en"]
+}
