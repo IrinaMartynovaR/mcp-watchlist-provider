@@ -1,0 +1,1 @@
+# mcp-watchlist-provider
