@@ -1,9 +1,8 @@
-# Langfuse v3 compose is intentionally not copied here.
-# Use the official current compose file, then run it next to this project.
-# See scripts/setup-langfuse-compose.sh
+# Langfuse compose is managed via scripts/setup-langfuse-compose.sh.
+# Use the official Langfuse developer compose stack pinned to 4.5.1 by default.
 #
 # Suggested workflow:
-#   ./scripts/setup-langfuse-compose.sh
+#   ./scripts/setup-langfuse-compose.sh 4.5.1
 #   docker compose -f vendor/langfuse/docker-compose.yml up -d
 #   docker compose up -d --build
 #

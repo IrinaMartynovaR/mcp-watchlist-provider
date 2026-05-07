@@ -64,3 +64,6 @@ plugins = []
 [[tool.mypy.overrides]]
 module = ["feedparser"]
 ignore_missing_imports = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["watchquest"]
