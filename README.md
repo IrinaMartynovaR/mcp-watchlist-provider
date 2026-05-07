@@ -28,14 +28,31 @@ docker compose up -d --build
 
 ## Langfuse
 
-Langfuse лучше держать отдельным compose, потому что официальный v3 stack включает несколько сервисов.
+Для локальной разработки используется минимальный Langfuse v2 stack:
+
+- без ClickHouse;
+- без Redis;
+- без S3/MinIO;
+- только UI и traces.
+
+Запуск:
 
 ```bash
-./scripts/setup-langfuse-compose.sh
 docker compose -f vendor/langfuse/docker-compose.yml up -d
 ```
 
-Потом открой `http://localhost:3000`, создай проект и добавь ключи в `.env`.
+После запуска:
+
+1. Открыть `http://localhost:3000`
+2. Создать проект
+3. Скопировать API keys
+4. Добавить ключи в `.env`
+
+```env
+LANGFUSE_HOST=http://localhost:3000
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+```
 
 ## Подключение к MCP-клиенту
 
