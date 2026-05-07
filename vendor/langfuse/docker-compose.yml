@@ -1,0 +1,39 @@
+services:
+  langfuse-server:
+    image: langfuse/langfuse:2
+    container_name: watchquest-langfuse
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@langfuse-db:5432/postgres
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-watchquest-dev-nextauth-secret-change-me}
+      SALT: ${LANGFUSE_SALT:-watchquest-dev-salt-change-me}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      NEXTAUTH_URL: ${LANGFUSE_NEXTAUTH_URL:-http://localhost:3000}
+      TELEMETRY_ENABLED: ${LANGFUSE_TELEMETRY_ENABLED:-false}
+    restart: unless-stopped
+
+  langfuse-db:
+    image: postgres:17
+    container_name: watchquest-langfuse-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  langfuse_postgres_data:
