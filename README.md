@@ -28,16 +28,12 @@ docker compose up -d --build
 
 ## Langfuse
 
-Для локальной разработки используется минимальный Langfuse v2 stack:
+Для локальной разработки используется официальный developer docker compose stack Langfuse с зафиксированной версией `4.5.1`.
 
-- без ClickHouse;
-- без Redis;
-- без S3/MinIO;
-- только UI и traces.
-
-Запуск:
+Подготовка и запуск:
 
 ```bash
+./scripts/setup-langfuse-compose.sh 4.5.1
 docker compose -f vendor/langfuse/docker-compose.yml up -d
 ```
 
