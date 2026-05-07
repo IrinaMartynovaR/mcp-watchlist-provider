@@ -4,6 +4,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from watchquest.logging_config import configure_logging
+from watchquest.observability import get_langfuse_client
 from watchquest.tools.media import (
     add_to_watchlist_data,
     fetch_latest_items_data,
@@ -89,6 +91,8 @@ def watchlist_resource() -> str:
 
 
 def main() -> None:
+    configure_logging()
+    get_langfuse_client()
     mcp.run()
 
 
