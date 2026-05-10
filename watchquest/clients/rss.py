@@ -1,12 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
 import feedparser
+import httpx
 
 from watchquest.models import FeedItem, Source
+
+RSS_USER_AGENT = "WatchQuest/0.1 RSS reader (+https://github.com/IrinaMartynovaR/mcp-watchlist-provider)"
+
+
+@dataclass(frozen=True)
+class RSSFetchResult:
+    source: Source
+    url: str
+    ok: bool
+    items: list[FeedItem]
+    error: str | None = None
+    status_code: int | None = None
 
 
 def _parse_date(entry: Any) -> datetime:
@@ -23,8 +37,16 @@ def _parse_date(entry: Any) -> datetime:
         return datetime.now(UTC)
 
 
-def fetch_rss_source(source: Source, limit: int = 20) -> list[FeedItem]:
-    parsed = feedparser.parse(str(source.url))
+def _entry_tags(entry: Any) -> list[str]:
+    tags: list[str] = []
+    for tag in getattr(entry, "tags", []) or []:
+        term = getattr(tag, "term", "")
+        if term:
+            tags.append(term)
+    return tags
+
+
+def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
     items: list[FeedItem] = []
 
     for entry in parsed.entries[:limit]:
@@ -35,12 +57,6 @@ def fetch_rss_source(source: Source, limit: int = 20) -> list[FeedItem]:
         if not title or not link:
             continue
 
-        tags = []
-        for tag in getattr(entry, "tags", []) or []:
-            term = getattr(tag, "term", "")
-            if term:
-                tags.append(term)
-
         items.append(
             FeedItem(
                 title=title,
@@ -50,8 +66,50 @@ def fetch_rss_source(source: Source, limit: int = 20) -> list[FeedItem]:
                 category=source.category,
                 summary=summary,
                 published_at=_parse_date(entry),
-                tags=tags,
+                tags=_entry_tags(entry),
             )
         )
 
     return items
+
+
+def fetch_rss_source_result(source: Source, limit: int = 20, timeout: float = 20.0) -> RSSFetchResult:
+    url = str(source.url)
+
+    try:
+        with httpx.Client(
+            follow_redirects=True,
+            headers={"User-Agent": RSS_USER_AGENT},
+            timeout=timeout,
+        ) as client:
+            response = client.get(url)
+            response.raise_for_status()
+
+        parsed = feedparser.parse(response.content)
+        items = _parse_items(parsed, source=source, limit=limit)
+        bozo_exception = getattr(parsed, "bozo_exception", None)
+        error = str(bozo_exception) if bozo_exception else None
+
+        if not items and error is None:
+            error = "Feed has no usable entries"
+
+        return RSSFetchResult(
+            source=source,
+            url=url,
+            ok=bool(items),
+            items=items,
+            error=error,
+            status_code=response.status_code,
+        )
+    except Exception as exc:
+        return RSSFetchResult(
+            source=source,
+            url=url,
+            ok=False,
+            items=[],
+            error=str(exc),
+        )
+
+
+def fetch_rss_source(source: Source, limit: int = 20) -> list[FeedItem]:
+    return fetch_rss_source_result(source, limit=limit).items
