@@ -49,6 +49,22 @@ LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 ```
 
+## Z.AI LLM
+
+WatchQuest can use Z.AI GLM for direct answers and recommendations.
+
+```env
+ZAI_API_KEY=...
+ZAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+ZAI_MODEL=glm-4.7-flash
+ZAI_TIMEOUT_SECONDS=90
+```
+
+Tools:
+
+- `ask_llm`
+- `recommend_with_llm`
+
 ## Подключение к MCP-клиенту
 
 Пример локального stdio-конфига:
@@ -74,6 +90,8 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 - `add_to_watchlist`
 - `list_watchlist`
 - `rate_watchlist_item`
+- `ask_llm`
+- `recommend_with_llm`
 
 ## Как пользоваться агенту
 
