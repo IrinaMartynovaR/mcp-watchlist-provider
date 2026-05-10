@@ -23,7 +23,7 @@ uv run watchquest-mcp
 
 ```bash
 cp .env.example .env
-docker compose up -d --build
+docker compose -f compose/docker-compose.watchquest.yml up -d --build
 ```
 
 ## Langfuse
@@ -33,8 +33,7 @@ docker compose up -d --build
 Подготовка и запуск:
 
 ```bash
-./scripts/setup-langfuse-compose.sh 4.5.1
-docker compose -f vendor/langfuse/docker-compose.yml up -d
+docker compose -f compose/docker-compose.langfuse.yml up -d
 ```
 
 После запуска:

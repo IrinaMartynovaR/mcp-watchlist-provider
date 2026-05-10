@@ -1,11 +1,15 @@
+name: watchquest
+
 services:
   watchquest-mcp:
-    build: .
+    build:
+      context: ..
+      dockerfile: Dockerfile
     container_name: watchquest-mcp
     env_file:
-      - .env
+      - ../.env
     volumes:
-      - ./data:/app/data
+      - ../data:/app/data
     stdin_open: true
     tty: true
     environment:
