@@ -49,6 +49,20 @@ LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 ```
 
+## RSS-Bridge
+
+RSS-Bridge can generate feeds for sites that do not provide RSS.
+
+```bash
+docker compose -f compose/docker-compose.rss-bridge.yml up -d
+```
+
+The agent manages RSS-Bridge through MCP tools:
+
+- `list_rss_bridges`
+- `build_rss_bridge_feed_url`
+- `add_rss_bridge_source`
+
 ## Z.AI LLM
 
 WatchQuest can use Z.AI GLM for direct answers and recommendations.

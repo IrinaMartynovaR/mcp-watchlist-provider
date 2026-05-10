@@ -1,0 +1,14 @@
+name: rss-bridge
+
+services:
+  rss-bridge:
+    image: rssbridge/rss-bridge:latest
+    container_name: rss-bridge
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    volumes:
+      - rss_bridge_config:/config
+
+volumes:
+  rss_bridge_config:
