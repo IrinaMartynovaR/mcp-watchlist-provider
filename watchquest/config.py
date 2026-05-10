@@ -26,3 +26,8 @@ FEEDLY_STREAM_IDS = [
     for item in os.getenv("FEEDLY_STREAM_IDS", "").split(",")
     if item.strip()
 ]
+
+ZAI_API_KEY = os.getenv("ZAI_API_KEY", "").strip()
+ZAI_BASE_URL = os.getenv("ZAI_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").strip().rstrip("/")
+ZAI_MODEL = os.getenv("ZAI_MODEL", "glm-4.7-flash").strip()
+ZAI_TIMEOUT_SECONDS = float(os.getenv("ZAI_TIMEOUT_SECONDS", "90"))
