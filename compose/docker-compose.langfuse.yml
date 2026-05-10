@@ -1,3 +1,5 @@
+name: langfuse
+
 # Make sure to update the credential placeholders with your own secrets.
 # We mark them with # CHANGEME in the file below.
 # In addition, we recommend to restrict inbound traffic on the host to langfuse-web (port 3000) and minio (port 9090) only.
