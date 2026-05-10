@@ -4,12 +4,13 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 COPY watchquest ./watchquest
 COPY data ./data
 
-RUN uv pip install --system .
+RUN uv sync --frozen --no-dev
 
 ENV WATCHQUEST_DATA_DIR=/app/data
+ENV PATH="/app/.venv/bin:$PATH"
 
 CMD ["watchquest-mcp"]
