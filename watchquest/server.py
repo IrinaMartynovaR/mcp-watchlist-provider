@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from watchquest.logging_config import configure_logging
 from watchquest.models import parse_category
 from watchquest.observability import get_langfuse_client
+from watchquest.tools.llm import ask_llm_data, recommend_with_llm_data
 from watchquest.tools.media import (
     add_to_watchlist_data,
     fetch_latest_items_data,
@@ -16,6 +17,11 @@ from watchquest.tools.media import (
     rate_watchlist_item_data,
     search_cached_items_data,
     update_profile_data,
+)
+from watchquest.tools.rss_bridge import (
+    add_rss_bridge_source_data,
+    build_rss_bridge_feed_url_data,
+    list_rss_bridges_data,
 )
 
 mcp = FastMCP("watchquest")
@@ -82,6 +88,54 @@ def list_watchlist(type: str = "all", status: str = "planned") -> list[dict[str,
 def rate_watchlist_item(title: str, rating: int, comment: str = "") -> dict[str, Any]:
     """Rate an item from the watchlist from 1 to 10 and add a comment."""
     return rate_watchlist_item_data(title=title, rating=rating, comment=comment)
+
+
+@mcp.tool()
+def ask_llm(prompt: str, system: str | None = None) -> dict[str, Any]:
+    """Ask the configured Z.AI GLM model directly."""
+    return ask_llm_data(prompt=prompt, system=system)
+
+
+@mcp.tool()
+def recommend_with_llm(query: str = "", category: str = "all", limit: int = 8) -> dict[str, Any]:
+    """Generate recommendations with the configured Z.AI GLM model using profile, watchlist and cached feed items."""
+    return recommend_with_llm_data(query=query, category=parse_category(category), limit=limit)
+
+
+@mcp.tool()
+def list_rss_bridges(query: str = "", limit: int = 20) -> list[dict[str, Any]]:
+    """Search available RSS-Bridge bridge definitions."""
+    return list_rss_bridges_data(query=query, limit=limit)
+
+
+@mcp.tool()
+def build_rss_bridge_feed_url(
+    bridge: str,
+    params: dict[str, str] | None = None,
+    format: str = "Atom",  # noqa: A002
+) -> dict[str, str]:
+    """Build an RSS-Bridge feed URL from a bridge id and parameters."""
+    return build_rss_bridge_feed_url_data(bridge=bridge, params=params, format=format)
+
+
+@mcp.tool()
+def add_rss_bridge_source(
+    name: str,
+    bridge: str,
+    params: dict[str, str] | None = None,
+    category: str = "mixed",
+    language: str = "unknown",
+    format: str = "Atom",  # noqa: A002
+) -> dict[str, Any]:
+    """Build an RSS-Bridge feed URL and add it to data/sources.json."""
+    return add_rss_bridge_source_data(
+        name=name,
+        bridge=bridge,
+        params=params,
+        category=parse_category(category),
+        language=language,
+        format=format,
+    )
 
 
 @mcp.resource("watchquest://profile")

@@ -49,6 +49,36 @@ LANGFUSE_PUBLIC_KEY=pk-lf-...
 LANGFUSE_SECRET_KEY=sk-lf-...
 ```
 
+## RSS-Bridge
+
+RSS-Bridge can generate feeds for sites that do not provide RSS.
+
+```bash
+docker compose -f compose/docker-compose.rss-bridge.yml up -d
+```
+
+The agent manages RSS-Bridge through MCP tools:
+
+- `list_rss_bridges`
+- `build_rss_bridge_feed_url`
+- `add_rss_bridge_source`
+
+## Z.AI LLM
+
+WatchQuest can use Z.AI GLM for direct answers and recommendations.
+
+```env
+ZAI_API_KEY=...
+ZAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+ZAI_MODEL=glm-4.7-flash
+ZAI_TIMEOUT_SECONDS=90
+```
+
+Tools:
+
+- `ask_llm`
+- `recommend_with_llm`
+
 ## Подключение к MCP-клиенту
 
 Пример локального stdio-конфига:
@@ -74,6 +104,8 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 - `add_to_watchlist`
 - `list_watchlist`
 - `rate_watchlist_item`
+- `ask_llm`
+- `recommend_with_llm`
 
 ## Как пользоваться агенту
 
