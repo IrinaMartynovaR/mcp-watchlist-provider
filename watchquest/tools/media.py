@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from watchquest.clients.feedly import fetch_feedly_items
-from watchquest.clients.rss import fetch_rss_source
+from watchquest.clients.rss import RSSFetchResult, fetch_rss_source_result
 from watchquest.config import CACHE_FILE, PROFILE_FILE, SOURCES_FILE, WATCHLIST_FILE
 from watchquest.models import Category, FeedItem, Source, WatchlistItem, parse_media_type
 from watchquest.observability import observe
@@ -42,6 +41,38 @@ def _matches_query(item: FeedItem, query: str) -> bool:
     return all(term in haystack for term in terms) if terms else True
 
 
+def _source_matches_category(source: Source, category: Category) -> bool:
+    return category == "all" or source.category in {category, "mixed"}
+
+
+def _rss_result_as_dict(result: RSSFetchResult) -> dict[str, Any]:
+    return {
+        "name": result.source.name,
+        "category": result.source.category,
+        "language": result.source.language,
+        "url": result.url,
+        "ok": result.ok,
+        "status_code": result.status_code,
+        "item_count": len(result.items),
+        "error": result.error,
+    }
+
+
+def _collect_rss_sources(category: Category, limit_per_source: int) -> tuple[list[FeedItem], list[dict[str, Any]]]:
+    items: list[FeedItem] = []
+    source_results: list[dict[str, Any]] = []
+
+    for source in _load_sources():
+        if not _source_matches_category(source, category):
+            continue
+
+        result = fetch_rss_source_result(source, limit=limit_per_source)
+        items.extend(result.items)
+        source_results.append(_rss_result_as_dict(result))
+
+    return items, source_results
+
+
 @observe("get_profile")
 def get_profile_data() -> dict[str, Any]:
     return read_json(PROFILE_FILE, {})
@@ -63,21 +94,52 @@ def list_sources_data() -> list[dict[str, Any]]:
     return [source.model_dump(mode="json") for source in _load_sources()]
 
 
-@observe("fetch_latest_items")
-def fetch_latest_items_data(category: Category = "all", limit_per_source: int = 20) -> list[dict[str, Any]]:
-    items: list[FeedItem] = []
+@observe("validate_sources")
+def validate_sources_data(category: Category = "all", limit_per_source: int = 3) -> dict[str, Any]:
+    _, source_results = _collect_rss_sources(category=category, limit_per_source=limit_per_source)
+    errors = [result for result in source_results if not result["ok"]]
 
-    for source in _load_sources():
-        if category != "all" and source.category not in {category, "mixed"}:
-            continue
-        items.extend(fetch_rss_source(source, limit=limit_per_source))
+    return {
+        "ok": not errors and bool(source_results),
+        "checked_count": len(source_results),
+        "errors": errors,
+        "sources": source_results,
+    }
 
-    items.extend(fetch_feedly_items(count=limit_per_source))
+
+@observe("refresh_feeds")
+def refresh_feeds_data(category: Category = "all", limit_per_source: int = 20) -> dict[str, Any]:
+    items, source_results = _collect_rss_sources(category=category, limit_per_source=limit_per_source)
     items = _dedupe(items)
     items.sort(key=lambda item: item.published_at, reverse=True)
 
-    write_json(CACHE_FILE, {"items": _as_dicts(items)})
-    return _as_dicts(items)
+    payload = {
+        "items": _as_dicts(items),
+        "refreshed_at": datetime.now(UTC).isoformat(),
+        "category": category,
+        "sources": source_results,
+    }
+    write_json(CACHE_FILE, payload)
+
+    errors = [result for result in source_results if not result["ok"]]
+
+    return {
+        "ok": bool(items),
+        "total_count": len(items),
+        "items": payload["items"],
+        "sources": source_results,
+        "errors": errors,
+        "cache_file": str(CACHE_FILE),
+    }
+
+
+@observe("fetch_latest_items")
+def fetch_latest_items_data(category: Category = "all", limit_per_source: int = 20) -> list[dict[str, Any]]:
+    refreshed = refresh_feeds_data(category=category, limit_per_source=limit_per_source)
+    items = refreshed["items"]
+    if not isinstance(items, list):
+        raise TypeError("Expected refresh_feeds_data to return a list of items")
+    return [dict(item) for item in items]
 
 
 @observe("search_cached_items")

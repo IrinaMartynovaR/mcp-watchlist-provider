@@ -20,6 +20,7 @@ class ChatCompletionRequest(TypedDict):
     messages: list[ChatMessage]
     temperature: float
     stream: bool
+    thinking: dict[str, str]
     max_tokens: NotRequired[int]
 
 
@@ -36,7 +37,7 @@ class ZAIClient:
     def __init__(self, settings: ZAISettings | None = None) -> None:
         self.settings = settings or ZAISettings()
 
-    def chat(self, messages: list[ChatMessage], max_tokens: int = 900) -> str:
+    def chat(self, messages: list[ChatMessage], max_tokens: int = 1500) -> str:
         if not self.settings.api_key:
             raise RuntimeError("ZAI_API_KEY is not configured")
 
@@ -45,6 +46,7 @@ class ZAIClient:
             "messages": messages,
             "temperature": self.settings.temperature,
             "stream": False,
+            "thinking": {"type": "disabled"},
             "max_tokens": max_tokens,
         }
         headers = {
@@ -85,7 +87,8 @@ def _extract_content(data: Any) -> str:
 
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
-        raise ValueError("Unexpected Z.AI response: empty content")
+        finish_reason = first_choice.get("finish_reason")
+        raise ValueError(f"Unexpected Z.AI response: empty final content, finish_reason={finish_reason}")
 
     return content.strip()
 

@@ -24,9 +24,14 @@ def test_extract_content_from_zai_response() -> None:
     assert _extract_content(data) == "Try Outer Wilds."
 
 
-def test_extract_content_rejects_empty_response() -> None:
+def test_extract_content_rejects_missing_choices() -> None:
     with pytest.raises(ValueError, match="missing choices"):
         _extract_content({"choices": []})
+
+
+def test_extract_content_rejects_empty_final_content() -> None:
+    with pytest.raises(ValueError, match="empty final content"):
+        _extract_content({"choices": [{"finish_reason": "length", "message": {"content": ""}}]})
 
 
 def test_format_http_error_for_rate_limit() -> None:

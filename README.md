@@ -1,14 +1,16 @@
 # WatchQuest MCP
 
-MVP MCP-сервера для персонального агента по фильмам, сериалам и играм.
+MVP MCP-сервера для персонального агента по играм, фильмам и сериалам. Главный источник свежего контекста - RSS-фиды из `data/sources.json`, опционально расширяемые через RSS-Bridge.
 
 ## Что умеет
 
-- читать RSS-источники из `data/sources.json`;
-- опционально читать Feedly streams через API;
+- проверять RSS-источники и показывать диагностику по каждому фиду;
+- обновлять локальный кеш новостей из RSS;
+- искать по кешу свежие материалы для рекомендаций;
+- добавлять новые RSS-источники через RSS-Bridge;
 - хранить профиль вкусов в `data/profile.json`;
 - хранить watchlist в `data/watchlist.json`;
-- отдавать tools через MCP;
+- генерировать рекомендации через Z.AI GLM;
 - опционально писать traces в Langfuse.
 
 ## Быстрый запуск локально
@@ -19,53 +21,50 @@ uv sync
 uv run watchquest-mcp
 ```
 
-## Запуск в Docker
+## Docker
 
 ```bash
 cp .env.example .env
 docker compose -f compose/docker-compose.watchquest.yml up -d --build
 ```
 
-## Langfuse
+## RSS: основной рабочий поток
 
-Для локальной разработки используется официальный developer docker compose stack Langfuse с зафиксированной версией `4.5.1`.
+Сначала агент проверяет источники:
 
-Подготовка и запуск:
-
-```bash
-docker compose -f compose/docker-compose.langfuse.yml up -d
+```text
+validate_sources(category="all", limit_per_source=3)
 ```
 
-После запуска:
+Потом обновляет кеш:
 
-1. Открыть `http://localhost:3000`
-2. Создать проект
-3. Скопировать API keys
-4. Добавить ключи в `.env`
-
-```env
-LANGFUSE_HOST=http://localhost:3000
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
+```text
+refresh_feeds(category="all", limit_per_source=20)
 ```
+
+После этого можно искать по свежему кешу:
+
+```text
+search_cached_items(query="cozy RPG story", category="games", days=30, limit=10)
+```
+
+Для совместимости остался старый tool `fetch_latest_items`; внутри он теперь использует `refresh_feeds`.
 
 ## RSS-Bridge
 
-RSS-Bridge can generate feeds for sites that do not provide RSS.
+RSS-Bridge нужен для сайтов, у которых нет удобного RSS.
 
 ```bash
 docker compose -f compose/docker-compose.rss-bridge.yml up -d
 ```
 
-The agent manages RSS-Bridge through MCP tools:
+Tools:
 
 - `list_rss_bridges`
 - `build_rss_bridge_feed_url`
 - `add_rss_bridge_source`
 
 ## Z.AI LLM
-
-WatchQuest can use Z.AI GLM for direct answers and recommendations.
 
 ```env
 ZAI_API_KEY=...
@@ -78,10 +77,25 @@ Tools:
 
 - `ask_llm`
 - `recommend_with_llm`
+- `recommend_media`
+
+## Langfuse
+
+Локальный Langfuse запускается отдельным compose-файлом:
+
+```bash
+docker compose -f compose/docker-compose.langfuse.yml up -d
+```
+
+После запуска открыть `http://localhost:3000`, создать проект, скопировать API keys и добавить их в `.env`:
+
+```env
+LANGFUSE_HOST=http://localhost:3000
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+```
 
 ## Подключение к MCP-клиенту
-
-Пример локального stdio-конфига:
 
 ```json
 {
@@ -96,20 +110,15 @@ Tools:
 
 ## Основные tools
 
+- `validate_sources`
+- `refresh_feeds`
+- `list_sources`
+- `search_cached_items`
 - `get_profile`
 - `update_profile`
-- `list_sources`
-- `fetch_latest_items`
-- `search_cached_items`
 - `add_to_watchlist`
 - `list_watchlist`
 - `rate_watchlist_item`
 - `ask_llm`
 - `recommend_with_llm`
-
-## Как пользоваться агенту
-
-1. Сначала вызвать `fetch_latest_items`.
-2. Потом искать через `search_cached_items`.
-3. Для рекомендаций учитывать `get_profile` и `list_watchlist`.
-4. Интересное сохранять через `add_to_watchlist`.
+- `recommend_media`
