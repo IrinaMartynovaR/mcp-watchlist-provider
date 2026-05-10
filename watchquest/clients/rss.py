@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
 
@@ -12,15 +12,15 @@ from watchquest.models import FeedItem, Source
 def _parse_date(entry: Any) -> datetime:
     raw = getattr(entry, "published", None) or getattr(entry, "updated", None)
     if not raw:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
     try:
         parsed = parsedate_to_datetime(raw)
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            parsed = parsed.replace(tzinfo=UTC)
         return parsed
     except Exception:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 def fetch_rss_source(source: Source, limit: int = 20) -> list[FeedItem]:

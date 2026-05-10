@@ -1,0 +1,1 @@
+"""WatchQuest MCP server package."""

@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from watchquest.clients.feedly import fetch_feedly_items
 from watchquest.clients.rss import fetch_rss_source
 from watchquest.config import CACHE_FILE, PROFILE_FILE, SOURCES_FILE, WATCHLIST_FILE
-from watchquest.models import Category, FeedItem, Source, WatchlistItem
+from watchquest.models import Category, FeedItem, Source, WatchlistItem, parse_media_type
 from watchquest.observability import observe
 from watchquest.storage.json_store import read_json, write_json
 
 
 def _load_sources() -> list[Source]:
-    data = read_json(SOURCES_FILE, {"feeds": []})
+    data: dict[str, Any] = read_json(SOURCES_FILE, {"feeds": []})
     return [Source.model_validate(item) for item in data.get("feeds", [])]
 
 
@@ -49,7 +49,7 @@ def get_profile_data() -> dict[str, Any]:
 
 @observe("update_profile")
 def update_profile_data(likes: list[str] | None = None, dislikes: list[str] | None = None) -> dict[str, Any]:
-    profile = read_json(PROFILE_FILE, {})
+    profile: dict[str, Any] = read_json(PROFILE_FILE, {})
     if likes:
         profile["likes"] = sorted(set(profile.get("likes", []) + likes))
     if dislikes:
@@ -81,9 +81,14 @@ def fetch_latest_items_data(category: Category = "all", limit_per_source: int = 
 
 
 @observe("search_cached_items")
-def search_cached_items_data(query: str, category: Category = "all", days: int = 30, limit: int = 20) -> list[dict[str, Any]]:
-    cached = read_json(CACHE_FILE, {"items": []})
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+def search_cached_items_data(
+    query: str,
+    category: Category = "all",
+    days: int = 30,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    cached: dict[str, Any] = read_json(CACHE_FILE, {"items": []})
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     results: list[FeedItem] = []
 
     for raw in cached.get("items", []):
@@ -100,32 +105,38 @@ def search_cached_items_data(query: str, category: Category = "all", days: int =
 
 
 @observe("add_to_watchlist")
-def add_to_watchlist_data(title: str, type: str = "unknown", url: str | None = None, reason: str = "", source: str | None = None) -> dict[str, Any]:
-    data = read_json(WATCHLIST_FILE, {"items": []})
-    item = WatchlistItem(title=title, type=type, url=url, reason=reason, source=source)
+def add_to_watchlist_data(
+    title: str,
+    type: str = "unknown",  # noqa: A002
+    url: str | None = None,
+    reason: str = "",
+    source: str | None = None,
+) -> dict[str, Any]:
+    data: dict[str, Any] = read_json(WATCHLIST_FILE, {"items": []})
+    item = WatchlistItem(title=title, type=parse_media_type(type), url=url, reason=reason, source=source)
     data["items"].append(item.model_dump(mode="json"))
     write_json(WATCHLIST_FILE, data)
     return item.model_dump(mode="json")
 
 
 @observe("list_watchlist")
-def list_watchlist_data(type: str = "all", status: str = "planned") -> list[dict[str, Any]]:
-    data = read_json(WATCHLIST_FILE, {"items": []})
+def list_watchlist_data(type: str = "all", status: str = "planned") -> list[dict[str, Any]]:  # noqa: A002
+    data: dict[str, Any] = read_json(WATCHLIST_FILE, {"items": []})
     items = data.get("items", [])
     if type != "all":
         items = [item for item in items if item.get("type") == type]
     if status != "all":
         items = [item for item in items if item.get("status") == status]
-    return items
+    return [dict(item) for item in items]
 
 
 @observe("rate_watchlist_item")
 def rate_watchlist_item_data(title: str, rating: int, comment: str = "") -> dict[str, Any]:
-    data = read_json(WATCHLIST_FILE, {"items": []})
+    data: dict[str, Any] = read_json(WATCHLIST_FILE, {"items": []})
     for item in data.get("items", []):
         if item.get("title", "").lower() == title.lower():
             item["rating"] = rating
             item["comment"] = comment
             write_json(WATCHLIST_FILE, data)
-            return item
+            return dict(item)
     raise ValueError(f"Item not found in watchlist: {title}")

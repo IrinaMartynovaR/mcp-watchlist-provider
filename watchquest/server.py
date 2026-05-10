@@ -5,6 +5,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from watchquest.logging_config import configure_logging
+from watchquest.models import parse_category
 from watchquest.observability import get_langfuse_client
 from watchquest.tools.media import (
     add_to_watchlist_data,
@@ -45,7 +46,7 @@ def fetch_latest_items(category: str = "all", limit_per_source: int = 20) -> lis
 
     category: games, movies, series, movies_series, mixed, or all.
     """
-    return fetch_latest_items_data(category=category, limit_per_source=limit_per_source)
+    return fetch_latest_items_data(category=parse_category(category), limit_per_source=limit_per_source)
 
 
 @mcp.tool()
@@ -56,17 +57,23 @@ def search_cached_items(query: str, category: str = "all", days: int = 30, limit
     Use bilingual queries when the user asks in Russian but sources may be English.
     Example query: "cozy RPG story rich уютная RPG сюжетная".
     """
-    return search_cached_items_data(query=query, category=category, days=days, limit=limit)
+    return search_cached_items_data(query=query, category=parse_category(category), days=days, limit=limit)
 
 
 @mcp.tool()
-def add_to_watchlist(title: str, type: str = "unknown", url: str | None = None, reason: str = "", source: str | None = None) -> dict[str, Any]:
+def add_to_watchlist(
+    title: str,
+    type: str = "unknown",  # noqa: A002
+    url: str | None = None,
+    reason: str = "",
+    source: str | None = None,
+) -> dict[str, Any]:
     """Add a game, movie, series, or article to the user's watchlist."""
     return add_to_watchlist_data(title=title, type=type, url=url, reason=reason, source=source)
 
 
 @mcp.tool()
-def list_watchlist(type: str = "all", status: str = "planned") -> list[dict[str, Any]]:
+def list_watchlist(type: str = "all", status: str = "planned") -> list[dict[str, Any]]:  # noqa: A002
     """Return items from the user's watchlist."""
     return list_watchlist_data(type=type, status=status)
 

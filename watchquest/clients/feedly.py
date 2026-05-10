@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -13,8 +13,8 @@ FEEDLY_API = "https://cloud.feedly.com/v3"
 
 def _ms_to_dt(value: int | None) -> datetime:
     if not value:
-        return datetime.now(timezone.utc)
-    return datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+        return datetime.now(UTC)
+    return datetime.fromtimestamp(value / 1000, tz=UTC)
 
 
 def _item_from_feedly(raw: dict[str, Any], stream_id: str) -> FeedItem | None:
