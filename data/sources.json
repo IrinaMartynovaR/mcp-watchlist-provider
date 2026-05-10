@@ -1,10 +1,22 @@
 {
   "feeds": [
     {
-      "name": "DTF — все материалы",
+      "name": "DTF - все материалы",
       "category": "mixed",
       "language": "ru",
       "url": "https://dtf.ru/rss/all"
+    },
+    {
+      "name": "StopGame - новости",
+      "category": "games",
+      "language": "ru",
+      "url": "https://rss.stopgame.ru/rss_news.xml"
+    },
+    {
+      "name": "StopGame - первая полоса",
+      "category": "games",
+      "language": "ru",
+      "url": "https://rss.stopgame.ru/rss_frontpage.xml"
     },
     {
       "name": "IGN",

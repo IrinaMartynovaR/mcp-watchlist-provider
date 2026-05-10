@@ -15,9 +15,12 @@ from watchquest.tools.media import (
     list_sources_data,
     list_watchlist_data,
     rate_watchlist_item_data,
+    refresh_feeds_data,
     search_cached_items_data,
     update_profile_data,
+    validate_sources_data,
 )
+from watchquest.tools.recommendation import recommend_media_data
 from watchquest.tools.rss_bridge import (
     add_rss_bridge_source_data,
     build_rss_bridge_feed_url_data,
@@ -48,11 +51,31 @@ def list_sources() -> list[dict[str, Any]]:
 @mcp.tool()
 def fetch_latest_items(category: str = "all", limit_per_source: int = 20) -> list[dict[str, Any]]:
     """
-    Fetch latest items from configured RSS sources and optional Feedly streams.
+    Fetch latest items from configured RSS sources.
 
     category: games, movies, series, movies_series, mixed, or all.
     """
     return fetch_latest_items_data(category=parse_category(category), limit_per_source=limit_per_source)
+
+
+@mcp.tool()
+def validate_sources(category: str = "all", limit_per_source: int = 3) -> dict[str, Any]:
+    """
+    Check configured RSS sources and return per-source diagnostics.
+
+    category: games, movies, series, movies_series, mixed, or all.
+    """
+    return validate_sources_data(category=parse_category(category), limit_per_source=limit_per_source)
+
+
+@mcp.tool()
+def refresh_feeds(category: str = "all", limit_per_source: int = 20) -> dict[str, Any]:
+    """
+    Refresh RSS items, write the local cache, and return diagnostics.
+
+    category: games, movies, series, movies_series, mixed, or all.
+    """
+    return refresh_feeds_data(category=parse_category(category), limit_per_source=limit_per_source)
 
 
 @mcp.tool()
@@ -135,6 +158,24 @@ def add_rss_bridge_source(
         category=parse_category(category),
         language=language,
         format=format,
+    )
+
+
+@mcp.tool()
+def recommend_media(
+    query: str,
+    category: str = "all",
+    refresh: bool = True,
+    limit: int = 8,
+    limit_per_source: int = 10,
+) -> dict[str, Any]:
+    """Refresh feeds, select candidates, and ask the configured LLM for practical recommendations."""
+    return recommend_media_data(
+        query=query,
+        category=parse_category(category),
+        refresh=refresh,
+        limit=limit,
+        limit_per_source=limit_per_source,
     )
 
 
