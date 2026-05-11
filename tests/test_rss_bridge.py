@@ -1,16 +1,14 @@
-from __future__ import annotations
-
 import json
 from pathlib import Path
 
 import pytest
 
-from watchquest.clients.rss_bridge import build_bridge_feed_url
-from watchquest.tools import rss_bridge
+from mcp_tools import rss_bridge
+from rss_feeds.bridge_client import build_bridge_feed_url
 
 
 def test_build_bridge_feed_url_encodes_params(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("watchquest.clients.rss_bridge.RSS_BRIDGE_BASE_URL", "http://localhost:3001")
+    monkeypatch.setattr("rss_feeds.bridge_client.RSS_BRIDGE_BASE_URL", "http://localhost:3001")
 
     url = build_bridge_feed_url("ExampleBridge", params={"q": "cozy rpg"}, format="Atom")
 
@@ -48,3 +46,4 @@ def test_add_rss_bridge_source_writes_sources(tmp_path: Path, monkeypatch: pytes
     assert source["url"] == "http://localhost:3001/feed"
     persisted = json.loads(sources_file.read_text(encoding="utf-8"))
     assert persisted["feeds"] == [source]
+

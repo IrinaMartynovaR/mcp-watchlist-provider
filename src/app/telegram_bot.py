@@ -1,7 +1,5 @@
 # ruff: noqa: RUF001
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any
@@ -10,10 +8,10 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
-from watchquest.config import TELEGRAM_BOT_TOKEN
-from watchquest.logging_config import configure_logging
-from watchquest.models import Category
-from watchquest.tools.recommendation import recommend_media_data
+from app.logging_config import configure_logging
+from app.settings import TELEGRAM_BOT_TOKEN
+from domain.models import Category
+from mcp_tools.recommendation import recommend_media_data
 
 LOGGER = logging.getLogger(__name__)
 MAX_MESSAGE_LENGTH = 3900
@@ -160,3 +158,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

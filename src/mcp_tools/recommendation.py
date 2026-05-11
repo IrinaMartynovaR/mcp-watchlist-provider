@@ -1,16 +1,19 @@
-from __future__ import annotations
-
 from typing import Any
 
-from watchquest.models import Category
-from watchquest.observability import observe
-from watchquest.tools.llm import ask_llm_data
-from watchquest.tools.media import (
+from app.observability import observe
+from domain.models import Category
+from llm_core.prompts.recommendations import build_feed_recommendation_prompt
+from mcp_tools.llm import ask_llm_data
+from mcp_tools.media import (
     fetch_latest_items_data,
     get_profile_data,
     list_watchlist_data,
     search_cached_items_data,
 )
+
+VIBE_MARKER = "\u0432\u0430\u0439\u0431"
+COZY_RU = "\u0443\u044e\u0442\u043d\u0430\u044f"
+ATMOSPHERIC_RU = "\u0430\u0442\u043c\u043e\u0441\u0444\u0435\u0440\u043d\u0430\u044f"
 
 
 @observe("recommend_media")
@@ -74,8 +77,8 @@ def _search_recommendation_candidates(query: str, category: Category, limit: int
 def _query_variants(query: str) -> list[str]:
     variants = [query]
     normalized = query.lower()
-    if "вайб" in normalized:
-        variants.extend(["уютная", "атмосферная", "cozy", "vibe"])
+    if VIBE_MARKER in normalized or "vibe" in normalized:
+        variants.extend([COZY_RU, ATMOSPHERIC_RU, "cozy", "vibe"])
     return variants
 
 
@@ -96,16 +99,11 @@ def _recommend_media_prompt(
     watchlist: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
 ) -> str:
-    return (
-        "You are creating a practical WatchQuest recommendation. "
-        "Return 1-5 recommendations in the user's language. "
-        "Use only the provided candidates. Do not invent titles that are not present in candidates. "
-        "If the user asks for games, recommend games mentioned in the candidates, not generic industry articles. "
-        "If there are fewer than 3 solid matches, recommend fewer and say the feed context is limited. "
-        "For each recommendation include title, type/category, why it fits, and a concrete next action.\n\n"
-        f"User query: {query}\n"
-        f"Category filter: {category}\n"
-        f"Profile: {profile}\n"
-        f"Watchlist: {watchlist[:20]}\n"
-        f"Candidates: {candidates}"
+    return build_feed_recommendation_prompt(
+        query=query,
+        category=category,
+        profile=profile,
+        watchlist=watchlist,
+        candidates=candidates,
     )
+

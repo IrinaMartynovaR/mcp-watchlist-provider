@@ -1,12 +1,10 @@
-from __future__ import annotations
-
 from typing import Any
 
-from watchquest.clients.rss_bridge import build_bridge_feed_url, list_bridges
-from watchquest.config import SOURCES_FILE
-from watchquest.models import Category, parse_category
-from watchquest.observability import observe
-from watchquest.storage.json_store import read_json, write_json
+from app.observability import observe
+from app.settings import SOURCES_FILE
+from domain.models import Category, parse_category
+from domain.storage.json_store import read_json, write_json
+from rss_feeds.bridge_client import build_bridge_feed_url, list_bridges
 
 
 @observe("list_rss_bridges")
@@ -76,3 +74,4 @@ def add_rss_bridge_source_data(
         write_json(SOURCES_FILE, data)
 
     return source
+

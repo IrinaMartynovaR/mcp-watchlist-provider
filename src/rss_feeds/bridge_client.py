@@ -1,11 +1,9 @@
-from __future__ import annotations
-
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 
-from watchquest.config import RSS_BRIDGE_BASE_URL, RSS_BRIDGE_TIMEOUT_SECONDS
+from rss_feeds.settings import RSS_BRIDGE_BASE_URL, RSS_BRIDGE_TIMEOUT_SECONDS
 
 
 def list_bridges() -> dict[str, Any]:
@@ -27,3 +25,4 @@ def build_bridge_feed_url(bridge: str, params: dict[str, str] | None = None, for
     if params:
         query.update(params)
     return f"{RSS_BRIDGE_BASE_URL}/?{urlencode(query)}"
+

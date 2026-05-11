@@ -1,31 +1,25 @@
-from __future__ import annotations
-
-import json
 from typing import Any
 
-from watchquest.config import CACHE_FILE, ZAI_MODEL
-from watchquest.llm.zai import ChatMessage, ZAIClient
-from watchquest.models import Category
-from watchquest.observability import observe
-from watchquest.storage.json_store import read_json
-from watchquest.tools.media import get_profile_data, list_watchlist_data
-
-SYSTEM_PROMPT = (
-    "You are WatchQuest, a concise bilingual media recommendation assistant. "
-    "Recommend games, movies, series, and articles using the user's taste profile, watchlist, and recent feed items. "
-    "Prefer concrete titles and explain why each recommendation fits. Answer in the user's language."
-)
+from app.observability import observe
+from app.settings import CACHE_FILE
+from domain.models import Category
+from domain.storage.json_store import read_json
+from llm_core.client import create_llm_client
+from llm_core.prompts.recommendations import SYSTEM_PROMPT, build_context_recommendation_prompt
+from llm_core.schemas import ChatMessage
+from llm_core.settings import LLM_MODEL, LLM_PROVIDER
+from mcp_tools.media import get_profile_data, list_watchlist_data
 
 
 @observe("ask_llm")
 def ask_llm_data(prompt: str, system: str | None = None) -> dict[str, Any]:
-    client = ZAIClient()
+    client = create_llm_client()
     messages: list[ChatMessage] = [
         {"role": "system", "content": system or SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
     response = client.chat(messages)
-    return {"provider": "z-ai", "model": ZAI_MODEL, "response": response}
+    return {"provider": LLM_PROVIDER, "model": LLM_MODEL, "response": response}
 
 
 @observe("recommend_with_llm")
@@ -61,14 +55,10 @@ def _recommendation_prompt(
     watchlist: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
 ) -> str:
-    context = {
-        "user_query": query,
-        "profile": profile,
-        "watchlist": watchlist[:20],
-        "recent_candidates": candidates,
-    }
-    return (
-        "Use this JSON context to produce 3-5 recommendations. "
-        "For each recommendation include: title, type, why it fits, and next action.\n\n"
-        f"{json.dumps(context, ensure_ascii=False, indent=2, default=str)}"
+    return build_context_recommendation_prompt(
+        query=query,
+        profile=profile,
+        watchlist=watchlist,
+        candidates=candidates,
     )
+
