@@ -1609,6 +1609,7 @@ dependencies = [
     { name = "langfuse" },
     { name = "mcp", extra = ["cli"] },
     { name = "pydantic" },
+    { name = "pydantic-settings" },
     { name = "python-dotenv" },
 ]
 
@@ -1627,6 +1628,7 @@ requires-dist = [
     { name = "langfuse", specifier = ">=4.0.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0.0" },
     { name = "pydantic", specifier = ">=2.7.0" },
+    { name = "pydantic-settings", specifier = ">=2.14.0" },
     { name = "python-dotenv", specifier = ">=1.0.1" },
 ]
 

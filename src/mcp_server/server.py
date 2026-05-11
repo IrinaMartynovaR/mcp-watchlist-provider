@@ -1,14 +1,12 @@
-from __future__ import annotations
-
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-from watchquest.logging_config import configure_logging
-from watchquest.models import parse_category
-from watchquest.observability import get_langfuse_client
-from watchquest.tools.llm import ask_llm_data, recommend_with_llm_data
-from watchquest.tools.media import (
+from app.logging_config import configure_logging
+from app.observability import get_langfuse_client
+from domain.models import parse_category
+from mcp_tools.llm import ask_llm_data, recommend_with_llm_data
+from mcp_tools.media import (
     add_to_watchlist_data,
     fetch_latest_items_data,
     get_profile_data,
@@ -20,8 +18,8 @@ from watchquest.tools.media import (
     update_profile_data,
     validate_sources_data,
 )
-from watchquest.tools.recommendation import recommend_media_data
-from watchquest.tools.rss_bridge import (
+from mcp_tools.recommendation import recommend_media_data
+from mcp_tools.rss_bridge import (
     add_rss_bridge_source_data,
     build_rss_bridge_feed_url_data,
     list_rss_bridges_data,
@@ -84,7 +82,7 @@ def search_cached_items(query: str, category: str = "all", days: int = 30, limit
     Search recently fetched cached items.
 
     Use bilingual queries when the user asks in Russian but sources may be English.
-    Example query: "cozy RPG story rich уютная RPG сюжетная".
+    Example query: "cozy RPG story rich".
     """
     return search_cached_items_data(query=query, category=parse_category(category), days=days, limit=limit)
 
@@ -115,13 +113,13 @@ def rate_watchlist_item(title: str, rating: int, comment: str = "") -> dict[str,
 
 @mcp.tool()
 def ask_llm(prompt: str, system: str | None = None) -> dict[str, Any]:
-    """Ask the configured Z.AI GLM model directly."""
+    """Ask the configured LLM provider directly."""
     return ask_llm_data(prompt=prompt, system=system)
 
 
 @mcp.tool()
 def recommend_with_llm(query: str = "", category: str = "all", limit: int = 8) -> dict[str, Any]:
-    """Generate recommendations with the configured Z.AI GLM model using profile, watchlist and cached feed items."""
+    """Generate recommendations with the configured LLM provider using profile, watchlist and cached feed items."""
     return recommend_with_llm_data(query=query, category=parse_category(category), limit=limit)
 
 
@@ -200,3 +198,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

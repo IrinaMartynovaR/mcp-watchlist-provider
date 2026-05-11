@@ -1,18 +1,9 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import httpx
 
-from watchquest.config import ZAI_API_KEY, ZAI_BASE_URL, ZAI_MODEL, ZAI_TIMEOUT_SECONDS
-
-ChatRole = Literal["system", "user", "assistant"]
-
-
-class ChatMessage(TypedDict):
-    role: ChatRole
-    content: str
+from llm_core.schemas import ChatMessage
 
 
 class ChatCompletionRequest(TypedDict):
@@ -25,21 +16,21 @@ class ChatCompletionRequest(TypedDict):
 
 
 @dataclass(frozen=True)
-class ZAISettings:
-    api_key: str = ZAI_API_KEY
-    base_url: str = ZAI_BASE_URL
-    model: str = ZAI_MODEL
-    timeout_seconds: float = ZAI_TIMEOUT_SECONDS
+class ZAIGLMSettings:
+    api_key: str
+    base_url: str
+    model: str
+    timeout_seconds: float
     temperature: float = 0.7
 
 
-class ZAIClient:
-    def __init__(self, settings: ZAISettings | None = None) -> None:
-        self.settings = settings or ZAISettings()
+class ZAIGLMClient:
+    def __init__(self, settings: ZAIGLMSettings) -> None:
+        self.settings = settings
 
     def chat(self, messages: list[ChatMessage], max_tokens: int = 1500) -> str:
         if not self.settings.api_key:
-            raise RuntimeError("ZAI_API_KEY is not configured")
+            raise RuntimeError("LLM_API_KEY is not configured")
 
         payload: ChatCompletionRequest = {
             "model": self.settings.model,
@@ -59,7 +50,7 @@ class ZAIClient:
             try:
                 response = client.post(f"{self.settings.base_url}/chat/completions", json=payload)
             except httpx.TimeoutException as exc:
-                raise RuntimeError("Z.AI request timed out. Try again or increase ZAI_TIMEOUT_SECONDS.") from exc
+                raise RuntimeError("LLM request timed out. Try again or increase LLM_TIMEOUT_SECONDS.") from exc
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
@@ -71,24 +62,24 @@ class ZAIClient:
 
 def _extract_content(data: Any) -> str:
     if not isinstance(data, dict):
-        raise ValueError("Unexpected Z.AI response: expected object")
+        raise ValueError("Unexpected LLM response: expected object")
 
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise ValueError("Unexpected Z.AI response: missing choices")
+        raise ValueError("Unexpected LLM response: missing choices")
 
     first_choice = choices[0]
     if not isinstance(first_choice, dict):
-        raise ValueError("Unexpected Z.AI response: invalid choice")
+        raise ValueError("Unexpected LLM response: invalid choice")
 
     message = first_choice.get("message")
     if not isinstance(message, dict):
-        raise ValueError("Unexpected Z.AI response: missing message")
+        raise ValueError("Unexpected LLM response: missing message")
 
     content = message.get("content")
     if not isinstance(content, str) or not content.strip():
         finish_reason = first_choice.get("finish_reason")
-        raise ValueError(f"Unexpected Z.AI response: empty final content, finish_reason={finish_reason}")
+        raise ValueError(f"Unexpected LLM response: empty final content, finish_reason={finish_reason}")
 
     return content.strip()
 
@@ -96,10 +87,10 @@ def _extract_content(data: Any) -> str:
 def _format_http_error(response: httpx.Response) -> str:
     details = _response_error_details(response)
     if response.status_code == 401:
-        return "Z.AI authentication failed. Check ZAI_API_KEY and model access."
+        return "LLM authentication failed. Check LLM_API_KEY and model access."
     if response.status_code == 429:
-        return f"Z.AI rate limit or quota exceeded. {details}".strip()
-    return f"Z.AI request failed with HTTP {response.status_code}. {details}".strip()
+        return f"LLM rate limit or quota exceeded. {details}".strip()
+    return f"LLM request failed with HTTP {response.status_code}. {details}".strip()
 
 
 def _response_error_details(response: httpx.Response) -> str:
@@ -119,3 +110,4 @@ def _response_error_details(response: httpx.Response) -> str:
 
     message = data.get("message") or data.get("msg")
     return str(message) if message else ""
+

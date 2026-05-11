@@ -5,7 +5,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
-COPY watchquest ./watchquest
+COPY src ./src
 COPY data ./data
 
 RUN uv sync --frozen --no-dev

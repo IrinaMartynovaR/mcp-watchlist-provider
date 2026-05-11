@@ -1,13 +1,11 @@
-from __future__ import annotations
-
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from watchquest.clients.rss import RSSFetchResult, fetch_rss_source_result
-from watchquest.config import CACHE_FILE, PROFILE_FILE, SOURCES_FILE, WATCHLIST_FILE
-from watchquest.models import Category, FeedItem, Source, WatchlistItem, parse_media_type
-from watchquest.observability import observe
-from watchquest.storage.json_store import read_json, write_json
+from app.observability import observe
+from app.settings import CACHE_FILE, PROFILE_FILE, SOURCES_FILE, WATCHLIST_FILE
+from domain.models import Category, FeedItem, Source, WatchlistItem, parse_media_type
+from domain.storage.json_store import read_json, write_json
+from rss_feeds.client import RSSFetchResult, fetch_rss_source_result
 
 
 def _load_sources() -> list[Source]:
@@ -202,3 +200,4 @@ def rate_watchlist_item_data(title: str, rating: int, comment: str = "") -> dict
             write_json(WATCHLIST_FILE, data)
             return dict(item)
     raise ValueError(f"Item not found in watchlist: {title}")
+

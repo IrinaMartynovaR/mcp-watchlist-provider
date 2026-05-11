@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -52,3 +50,4 @@ class WatchlistItem(BaseModel):
     rating: int | None = Field(default=None, ge=1, le=10)
     comment: str = ""
     added_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+

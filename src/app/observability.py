@@ -1,24 +1,13 @@
-from __future__ import annotations
-
 import logging
-import os
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, TypeVar, cast
 
+from app.settings import LANGFUSE_ENABLED, LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
+
 logger = logging.getLogger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
-
-LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY", "").strip()
-LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY", "").strip()
-LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "http://localhost:3000").strip()
-
-LANGFUSE_ENABLED = bool(
-    LANGFUSE_PUBLIC_KEY
-    and LANGFUSE_SECRET_KEY
-    and LANGFUSE_HOST
-)
 
 _langfuse_client: Any | None = None
 _Langfuse: Any = None
@@ -35,12 +24,7 @@ except Exception:  # pragma: no cover
 
 
 def get_langfuse_client() -> Any | None:
-    """
-    Возвращает singleton-клиент Langfuse.
-
-    Returns:
-        Any | None: Инициализированный клиент Langfuse или None.
-    """
+    """Return a singleton Langfuse client when tracing is configured."""
     global _langfuse_client
 
     if not LANGFUSE_ENABLED:
@@ -72,10 +56,10 @@ def observe(name: str | None = None) -> Callable[[F], F]:
     Create a tracing decorator with graceful fallback.
 
     Args:
-        name (str | None): Имя trace/span операции.
+        name: Optional trace/span name.
 
     Returns:
-        Callable[[F], F]: Декоратор tracing-функции.
+        Tracing decorator.
     """
     client = get_langfuse_client()
 
@@ -100,3 +84,4 @@ def observe(name: str | None = None) -> Callable[[F], F]:
         return cast(F, wrapper)
 
     return decorator
+
