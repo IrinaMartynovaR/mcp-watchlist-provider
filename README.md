@@ -21,12 +21,44 @@ uv sync
 uv run watchquest-mcp
 ```
 
+## Telegram Bot
+
+Бот работает через long polling на актуальном `aiogram`.
+
+```env
+TELEGRAM_BOT_TOKEN=...
+```
+
+```bash
+uv run watchquest-telegram-bot
+```
+
+В Telegram можно писать обычным текстом:
+
+```text
+посоветуй вайбовую игру
+```
+
+Команды:
+
+- `/start`
+- `/help`
+- `/recommend посоветуй атмосферный сериал`
+
 ## Docker
 
 ```bash
 cp .env.example .env
 docker compose -f compose/docker-compose.watchquest.yml up -d --build
 ```
+
+Этот compose поднимает:
+
+- `rss-bridge` на `http://localhost:3001`
+- `watchquest-mcp`
+- `watchquest-telegram-bot`
+
+Для Telegram в `.env` должен быть заполнен `TELEGRAM_BOT_TOKEN`.
 
 ## RSS: основной рабочий поток
 

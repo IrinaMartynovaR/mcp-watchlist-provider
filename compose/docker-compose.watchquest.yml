@@ -1,11 +1,21 @@
 name: watchquest
 
 services:
+  rss-bridge:
+    image: rssbridge/rss-bridge:latest
+    container_name: watchquest-rss-bridge
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    volumes:
+      - rss_bridge_config:/config
+
   watchquest-mcp:
     build:
       context: ..
       dockerfile: Dockerfile
     container_name: watchquest-mcp
+    restart: unless-stopped
     env_file:
       - ../.env
     volumes:
@@ -17,5 +27,33 @@ services:
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://host.docker.internal:3000}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      RSS_BRIDGE_BASE_URL: http://rss-bridge
+    depends_on:
+      - rss-bridge
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  watchquest-telegram-bot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: watchquest-telegram-bot
+    restart: unless-stopped
+    command: ["watchquest-telegram-bot"]
+    env_file:
+      - ../.env
+    volumes:
+      - ../data:/app/data
+    environment:
+      WATCHQUEST_DATA_DIR: /app/data
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://host.docker.internal:3000}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      RSS_BRIDGE_BASE_URL: http://rss-bridge
+    depends_on:
+      - rss-bridge
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  rss_bridge_config:
