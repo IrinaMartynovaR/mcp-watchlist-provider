@@ -27,3 +27,5 @@ ZAI_TIMEOUT_SECONDS = float(os.getenv("ZAI_TIMEOUT_SECONDS", "90"))
 
 RSS_BRIDGE_BASE_URL = os.getenv("RSS_BRIDGE_BASE_URL", "http://localhost:3001").strip().rstrip("/")
 RSS_BRIDGE_TIMEOUT_SECONDS = float(os.getenv("RSS_BRIDGE_TIMEOUT_SECONDS", "20"))
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
