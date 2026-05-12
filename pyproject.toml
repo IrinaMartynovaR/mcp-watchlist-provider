@@ -4,16 +4,19 @@ version = "0.1.0"
 description = "MCP agent tools for games, movies and series recommendations from RSS sources."
 requires-python = ">=3.12"
 dependencies = [
+    "aiogram>=3.28.2",
     "mcp[cli]>=1.0.0",
     "feedparser>=6.0.11",
     "httpx>=0.27.0",
     "pydantic>=2.7.0",
+    "pydantic-settings>=2.14.0",
     "python-dotenv>=1.0.1",
     "langfuse>=4.0.0",
 ]
 
 [project.scripts]
-watchquest-mcp = "watchquest.server:main"
+watchquest-mcp = "mcp_server.server:main"
+watchquest-telegram-bot = "app.telegram_bot:main"
 
 [dependency-groups]
 dev = [
@@ -48,6 +51,7 @@ select = [
     "W",
 ]
 ignore = []
+allowed-confusables = ["Н", "а", "б", "г", "е", "о", "р", "с", "у"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -59,6 +63,8 @@ python_version = "3.12"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+explicit_package_bases = true
+mypy_path = "src"
 plugins = []
 
 [[tool.mypy.overrides]]
@@ -66,4 +72,4 @@ module = ["feedparser"]
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["watchquest"]
+packages = ["src/app", "src/domain", "src/llm_core", "src/mcp_server", "src/mcp_tools", "src/rss_feeds"]

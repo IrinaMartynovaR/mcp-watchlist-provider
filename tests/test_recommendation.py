@@ -1,10 +1,11 @@
-from __future__ import annotations
-
 from typing import Any
 
 import pytest
 
-from watchquest.tools import recommendation
+from mcp_tools import recommendation
+
+VIBE_GAME_QUERY = "\u0432\u0430\u0439\u0431\u043e\u0432\u0430\u044f \u0438\u0433\u0440\u0430"
+COZY_QUERY = "\u0443\u044e\u0442\u043d\u0430\u044f"
 
 
 def test_recommend_media_orchestrates_refresh_search_and_llm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -25,7 +26,7 @@ def test_recommend_media_orchestrates_refresh_search_and_llm(monkeypatch: pytest
     monkeypatch.setattr(
         recommendation,
         "ask_llm_data",
-        lambda prompt: {"provider": "z-ai", "model": "glm-4.7-flash", "response": f"ok: {prompt[:20]}"},
+        lambda prompt: {"provider": "test_provider", "model": "test-model", "response": f"ok: {prompt[:20]}"},
     )
 
     result = recommendation.recommend_media_data(query="cozy mystery", category="games")
@@ -33,7 +34,7 @@ def test_recommend_media_orchestrates_refresh_search_and_llm(monkeypatch: pytest
     assert calls == ["fetch", "search:cozy mystery"]
     assert result["fetched_count"] == 1
     assert result["candidate_count"] == 1
-    assert result["model"] == "glm-4.7-flash"
+    assert result["model"] == "test-model"
     assert "ok:" in result["recommendation"]
 
 
@@ -53,7 +54,7 @@ def test_recommend_media_falls_back_to_recent_candidates(monkeypatch: pytest.Mon
     monkeypatch.setattr(
         recommendation,
         "ask_llm_data",
-        lambda prompt: {"provider": "z-ai", "model": "glm-4.7-flash", "response": prompt},
+        lambda prompt: {"provider": "test_provider", "model": "test-model", "response": prompt},
     )
 
     result = recommendation.recommend_media_data(query="very specific", refresh=False)
@@ -79,7 +80,7 @@ def test_recommend_media_prefers_exact_category_on_fallback(monkeypatch: pytest.
     monkeypatch.setattr(
         recommendation,
         "ask_llm_data",
-        lambda prompt: {"provider": "z-ai", "model": "glm-4.7-flash", "response": prompt},
+        lambda prompt: {"provider": "test_provider", "model": "test-model", "response": prompt},
     )
 
     result = recommendation.recommend_media_data(query="vibe", category="games", refresh=False)
@@ -93,7 +94,7 @@ def test_recommend_media_expands_vibe_query(monkeypatch: pytest.MonkeyPatch) -> 
 
     def search_cached_items_data(query: str, **_: Any) -> list[dict[str, Any]]:
         queries.append(query)
-        if query == "уютная":
+        if query == COZY_QUERY:
             return [{"title": "SUMMERHOUSE", "category": "games", "url": "https://example.com/summerhouse"}]
         return []
 
@@ -104,12 +105,12 @@ def test_recommend_media_expands_vibe_query(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(
         recommendation,
         "ask_llm_data",
-        lambda prompt: {"provider": "z-ai", "model": "glm-4.7-flash", "response": prompt},
+        lambda prompt: {"provider": "test_provider", "model": "test-model", "response": prompt},
     )
 
-    result = recommendation.recommend_media_data(query="вайбовая игра", category="games", refresh=False)
+    result = recommendation.recommend_media_data(query=VIBE_GAME_QUERY, category="games", refresh=False)
 
-    assert queries[:2] == ["вайбовая игра", "уютная"]
+    assert queries[:2] == [VIBE_GAME_QUERY, COZY_QUERY]
     assert result["candidates"] == [
         {"title": "SUMMERHOUSE", "category": "games", "url": "https://example.com/summerhouse"}
     ]
