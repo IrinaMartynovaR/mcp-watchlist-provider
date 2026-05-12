@@ -2,7 +2,8 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from app.observability import observe
+from langfuse import observe
+
 from app.settings import CACHE_FILE, PROFILE_FILE, SOURCES_FILE, WATCHLIST_FILE
 from domain.models import Category, FeedItem, Source, WatchlistItem, parse_media_type
 from domain.storage.json_store import read_json, write_json
@@ -120,13 +121,12 @@ def _collect_rss_sources(category: Category, limit_per_source: int) -> tuple[lis
     return items, source_results
 
 
-@observe("get_profile")
+@observe(name="get_profile", as_type="tool")
 def get_profile_data() -> dict[str, Any]:
     """Возвращает профиль пользовательских предпочтений."""
     return read_json(PROFILE_FILE, {})
 
 
-@observe("update_profile")
 def update_profile_data(likes: list[str] | None = None, dislikes: list[str] | None = None) -> dict[str, Any]:
     """Обновляет likes и dislikes профиля.
 
@@ -150,13 +150,11 @@ def update_profile_data(likes: list[str] | None = None, dislikes: list[str] | No
     return profile
 
 
-@observe("list_sources")
 def list_sources_data() -> list[dict[str, Any]]:
     """Возвращает сериализованный список RSS-источников."""
     return [source.model_dump(mode="json") for source in _load_sources()]
 
 
-@observe("validate_sources")
 def validate_sources_data(
     category: Category = "all",
     limit_per_source: int = SOURCE_VALIDATION_LIMIT,
@@ -185,7 +183,7 @@ def validate_sources_data(
     }
 
 
-@observe("refresh_feeds")
+@observe(name="refresh_feeds", as_type="tool")
 def refresh_feeds_data(
     category: Category = "all",
     limit_per_source: int = FEED_REFRESH_LIMIT,
@@ -232,7 +230,7 @@ def refresh_feeds_data(
     }
 
 
-@observe("fetch_latest_items")
+@observe(name="fetch_latest_items", as_type="tool")
 def fetch_latest_items_data(
     category: Category = "all",
     limit_per_source: int = FEED_REFRESH_LIMIT,
@@ -253,7 +251,7 @@ def fetch_latest_items_data(
     return [dict(item) for item in items]
 
 
-@observe("search_cached_items")
+@observe(name="search_cached_items", as_type="tool")
 def search_cached_items_data(
     query: str,
     category: Category = "all",
@@ -292,7 +290,6 @@ def search_cached_items_data(
     return _as_dicts(results[:limit])
 
 
-@observe("add_to_watchlist")
 def add_to_watchlist_data(
     title: str,
     media_type: str = "unknown",
@@ -320,7 +317,7 @@ def add_to_watchlist_data(
     return item.model_dump(mode="json")
 
 
-@observe("list_watchlist")
+@observe(name="list_watchlist", as_type="tool")
 def list_watchlist_data(media_type: str = "all", status: str = "planned") -> list[dict[str, Any]]:
     """Возвращает watchlist с фильтрацией по типу и статусу.
 
@@ -340,7 +337,6 @@ def list_watchlist_data(media_type: str = "all", status: str = "planned") -> lis
     return [dict(item) for item in items]
 
 
-@observe("rate_watchlist_item")
 def rate_watchlist_item_data(title: str, rating: int, comment: str = "") -> dict[str, Any]:
     """Сохраняет оценку и комментарий для элемента watchlist.
 

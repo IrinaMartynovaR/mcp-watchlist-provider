@@ -1,7 +1,8 @@
 import logging
 from typing import Any
 
-from app.observability import observe
+from langfuse import observe
+
 from domain.models import Category
 from llm_core.prompts.recommendations import build_feed_recommendation_prompt
 from mcp_tools.llm import ask_llm_data
@@ -23,7 +24,7 @@ from mcp_tools.settings import (
 logger = logging.getLogger(__name__)
 
 
-@observe("recommend_media")
+@observe(name="recommend_media", as_type="chain")
 def recommend_media_data(
     query: str,
     category: Category = "all",
@@ -48,6 +49,7 @@ def recommend_media_data(
         fetched_count = len(fetch_latest_items_data(category=category, limit_per_source=limit_per_source))
 
     candidates = _search_recommendation_candidates(query=query, category=category, limit=limit)
+    fallback_used = False
     if not candidates:
         recent_candidates = search_cached_items_data(
             query="",
@@ -56,6 +58,7 @@ def recommend_media_data(
             limit=limit * RECOMMENDATION_FALLBACK_CANDIDATE_MULTIPLIER,
         )
         candidates = _prefer_exact_category(recent_candidates, category=category, limit=limit)
+        fallback_used = True
         logger.info(
             "Recommendation fallback candidates selected",
             extra={"query": query, "category": category, "candidate_count": len(candidates)},
@@ -94,6 +97,26 @@ def recommend_media_data(
         "recommendation": llm["response"],
         "model": llm["model"],
         "provider": llm["provider"],
+        "tool_usage": {
+            "fetch_latest_items": refresh,
+            "search_cached_items": True,
+            "fallback_recent_search": fallback_used,
+            "get_profile": True,
+            "list_watchlist": True,
+            "ask_llm": True,
+        },
+        "mcp_tool_usage": {
+            "get_profile": True,
+            "update_profile": False,
+            "list_sources": False,
+            "validate_sources": False,
+            "refresh_feeds": refresh,
+            "search_cached_items": True,
+            "add_to_watchlist": False,
+            "list_watchlist": True,
+            "rate_watchlist_item": False,
+            "recommend_media": True,
+        },
     }
 
 
