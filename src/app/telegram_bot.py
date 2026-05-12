@@ -1,5 +1,3 @@
-# ruff: noqa: RUF001
-
 import asyncio
 import logging
 from typing import Any
@@ -9,12 +7,17 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 
 from app.logging_config import configure_logging
-from app.settings import TELEGRAM_BOT_TOKEN
+from app.settings import (
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CANDIDATE_PREVIEW_LIMIT,
+    TELEGRAM_MAX_MESSAGE_LENGTH,
+    TELEGRAM_RECOMMENDATION_LIMIT,
+    TELEGRAM_RECOMMENDATION_SOURCE_LIMIT,
+)
 from domain.models import Category
 from mcp_tools.recommendation import recommend_media_data
 
 LOGGER = logging.getLogger(__name__)
-MAX_MESSAGE_LENGTH = 3900
 
 WELCOME_TEXT = (
     "Привет! Я WatchQuest.\n\n"
@@ -35,6 +38,14 @@ HELP_TEXT = (
 
 
 def infer_category(text: str) -> Category:
+    """Определяет медиакатегорию по тексту Telegram-запроса.
+
+    Args:
+        text: Пользовательское сообщение.
+
+    Returns:
+        Категорию для дальнейшего recommendation pipeline.
+    """
     normalized = text.lower()
     if any(word in normalized for word in ("игра", "игру", "игры", "game", "games")):
         return "games"
@@ -45,7 +56,16 @@ def infer_category(text: str) -> Category:
     return "all"
 
 
-def split_telegram_text(text: str, limit: int = MAX_MESSAGE_LENGTH) -> list[str]:
+def split_telegram_text(text: str, limit: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> list[str]:
+    """Разбивает длинный текст на Telegram-совместимые чанки.
+
+    Args:
+        text: Исходный текст ответа.
+        limit: Максимальная длина одного чанка.
+
+    Returns:
+        Непустые части текста, готовые к отправке.
+    """
     if len(text) <= limit:
         return [text]
 
@@ -62,16 +82,26 @@ def split_telegram_text(text: str, limit: int = MAX_MESSAGE_LENGTH) -> list[str]
         chunks.append(remaining[:split_at].strip())
         remaining = remaining[split_at:].strip()
 
-    return [chunk for chunk in chunks if chunk]
+    result = [chunk for chunk in chunks if chunk]
+    LOGGER.debug("Telegram response split", extra={"chunk_count": len(result), "limit": limit})
+    return result
 
 
 def format_recommendation_response(result: dict[str, Any]) -> str:
+    """Форматирует результат recommendation pipeline для Telegram.
+
+    Args:
+        result: Ответ `recommend_media_data`.
+
+    Returns:
+        Пользовательский текст с рекомендацией и RSS-кандидатами.
+    """
     recommendation = str(result.get("recommendation") or "").strip()
     candidates = result.get("candidates", [])
     candidate_lines: list[str] = []
 
     if isinstance(candidates, list) and candidates:
-        for item in candidates[:5]:
+        for item in candidates[:TELEGRAM_CANDIDATE_PREVIEW_LIMIT]:
             if not isinstance(item, dict):
                 continue
             title = str(item.get("title") or "Без названия").strip()
@@ -87,6 +117,12 @@ def format_recommendation_response(result: dict[str, Any]) -> str:
 
 
 async def answer_recommendation(message: Message, query: str) -> None:
+    """Обрабатывает один Telegram-запрос на рекомендацию.
+
+    Args:
+        message: Входящее Telegram-сообщение.
+        query: Пользовательский текст запроса.
+    """
     query = query.strip()
     if not query:
         await message.answer("Напиши запрос после команды, например: /recommend посоветуй вайбовую игру")
@@ -94,6 +130,7 @@ async def answer_recommendation(message: Message, query: str) -> None:
 
     await message.answer("Сейчас проверю RSS и соберу рекомендацию.")
     category = infer_category(query)
+    LOGGER.info("Telegram recommendation requested", extra={"category": category, "query": query})
 
     try:
         result = await asyncio.to_thread(
@@ -101,8 +138,8 @@ async def answer_recommendation(message: Message, query: str) -> None:
             query=query,
             category=category,
             refresh=True,
-            limit=5,
-            limit_per_source=8,
+            limit=TELEGRAM_RECOMMENDATION_LIMIT,
+            limit_per_source=TELEGRAM_RECOMMENDATION_SOURCE_LIMIT,
         )
     except Exception:
         LOGGER.exception("Telegram recommendation failed")
@@ -111,9 +148,18 @@ async def answer_recommendation(message: Message, query: str) -> None:
 
     for chunk in split_telegram_text(format_recommendation_response(result)):
         await message.answer(chunk, disable_web_page_preview=True)
+    LOGGER.info(
+        "Telegram recommendation delivered",
+        extra={"category": category, "candidate_count": result.get("candidate_count", 0)},
+    )
 
 
 def create_dispatcher() -> Dispatcher:
+    """Создаёт и конфигурирует aiogram dispatcher.
+
+    Returns:
+        Dispatcher с зарегистрированными обработчиками команд и текста.
+    """
     dp = Dispatcher()
 
     @dp.message(CommandStart())
@@ -138,20 +184,28 @@ def create_dispatcher() -> Dispatcher:
 
 
 async def run_bot() -> None:
+    """Запускает Telegram polling lifecycle.
+
+    Raises:
+        RuntimeError: Если токен Telegram-бота отсутствует.
+    """
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
 
     bot = Bot(token=TELEGRAM_BOT_TOKEN)
     dispatcher = create_dispatcher()
     await bot.delete_webhook(drop_pending_updates=True)
+    LOGGER.info("Telegram bot polling started")
 
     try:
         await dispatcher.start_polling(bot)
     finally:
+        LOGGER.info("Telegram bot polling stopped")
         await bot.session.close()
 
 
 def main() -> None:
+    """Точка входа CLI-команды Telegram-бота."""
     configure_logging()
     asyncio.run(run_bot())
 

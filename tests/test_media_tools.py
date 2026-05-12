@@ -25,7 +25,7 @@ def test_watchlist_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 
     created = media.add_to_watchlist_data(
         title="Outer Wilds",
-        type="game",
+        media_type="game",
         url="https://example.com/outer-wilds",
         reason="Curious exploration loop",
         source="manual",
@@ -34,7 +34,7 @@ def test_watchlist_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert created["title"] == "Outer Wilds"
     assert created["type"] == "game"
 
-    items = media.list_watchlist_data(type="game", status="planned")
+    items = media.list_watchlist_data(media_type="game", status="planned")
     assert [item["title"] for item in items] == ["Outer Wilds"]
 
     rated = media.rate_watchlist_item_data("outer wilds", rating=10, comment="Worth it")

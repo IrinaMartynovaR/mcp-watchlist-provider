@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LLMSettings(BaseSettings):
+    """Хранит настройки LLM-провайдера и нормализует env-ввод."""
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -26,23 +27,32 @@ class LLMSettings(BaseSettings):
 
     @property
     def normalized_provider(self) -> str:
+        """Возвращает нормализованное имя LLM-провайдера."""
         return self.provider.strip().lower()
 
     @property
     def normalized_api_key(self) -> str:
+        """Возвращает API-ключ без внешних пробелов."""
         return self.api_key.strip()
 
     @property
     def normalized_base_url(self) -> str:
+        """Возвращает базовый URL API без завершающего slash."""
         return self.base_url.strip().rstrip("/")
 
     @property
     def normalized_model(self) -> str:
+        """Возвращает имя модели без внешних пробелов."""
         return self.model.strip()
 
 
 @lru_cache
 def get_llm_settings() -> LLMSettings:
+    """Загружает и кеширует настройки LLM-подсистемы.
+
+    Returns:
+        Актуальные настройки LLM-провайдера.
+    """
     return LLMSettings()
 
 

@@ -5,7 +5,6 @@ import pytest
 
 from llm_core.providers.zai_glm import ZAIGLMClient, ZAIGLMSettings, _extract_content, _format_http_error
 from llm_core.schemas import ChatMessage
-from mcp_tools.llm import _candidate_items, _recommendation_prompt
 
 
 def test_extract_content_from_chat_completion_response() -> None:
@@ -61,26 +60,4 @@ def test_provider_client_wraps_timeouts(monkeypatch: pytest.MonkeyPatch) -> None
     with pytest.raises(RuntimeError, match="timed out"):
         client.chat(messages)
 
-
-def test_candidate_items_filters_by_category() -> None:
-    items = [
-        {"title": "A", "category": "games"},
-        {"title": "B", "category": "movies"},
-        {"title": "C", "category": "mixed"},
-    ]
-
-    assert [item["title"] for item in _candidate_items(items, category="games", limit=3)] == ["A", "C"]
-
-
-def test_recommendation_prompt_contains_context() -> None:
-    prompt = _recommendation_prompt(
-        query="cozy RPG",
-        profile={"likes": ["story-rich games"]},
-        watchlist=[{"title": "Disco Elysium"}],
-        candidates=[{"title": "Outer Wilds", "category": "games"}],
-    )
-
-    assert "cozy RPG" in prompt
-    assert "Disco Elysium" in prompt
-    assert "Outer Wilds" in prompt
 

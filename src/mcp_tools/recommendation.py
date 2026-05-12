@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from app.observability import observe
@@ -10,10 +11,16 @@ from mcp_tools.media import (
     list_watchlist_data,
     search_cached_items_data,
 )
+from mcp_tools.settings import (
+    CACHE_SEARCH_DAYS,
+    RECOMMENDATION_FALLBACK_CANDIDATE_MULTIPLIER,
+    RECOMMENDATION_KEYWORD_MARKER,
+    RECOMMENDATION_KEYWORD_VARIANTS,
+    RECOMMENDATION_LIMIT,
+    RECOMMENDATION_SOURCE_LIMIT,
+)
 
-VIBE_MARKER = "\u0432\u0430\u0439\u0431"
-COZY_RU = "\u0443\u044e\u0442\u043d\u0430\u044f"
-ATMOSPHERIC_RU = "\u0430\u0442\u043c\u043e\u0441\u0444\u0435\u0440\u043d\u0430\u044f"
+logger = logging.getLogger(__name__)
 
 
 @observe("recommend_media")
@@ -21,20 +28,41 @@ def recommend_media_data(
     query: str,
     category: Category = "all",
     refresh: bool = True,
-    limit: int = 8,
-    limit_per_source: int = 10,
+    limit: int = RECOMMENDATION_LIMIT,
+    limit_per_source: int = RECOMMENDATION_SOURCE_LIMIT,
 ) -> dict[str, Any]:
+    """Собирает рекомендацию из RSS-кандидатов и LLM-ответа.
+
+    Args:
+        query: Пользовательский запрос.
+        category: Категория поиска.
+        refresh: Нужно ли обновить RSS-кеш перед подбором.
+        limit: Максимальное число кандидатов для передачи в LLM.
+        limit_per_source: Лимит RSS-записей на один источник.
+
+    Returns:
+        Словарь с кандидатами, LLM-рекомендацией и метаданными запроса.
+    """
     fetched_count = 0
     if refresh:
         fetched_count = len(fetch_latest_items_data(category=category, limit_per_source=limit_per_source))
 
     candidates = _search_recommendation_candidates(query=query, category=category, limit=limit)
     if not candidates:
-        recent_candidates = search_cached_items_data(query="", category=category, days=30, limit=limit * 3)
+        recent_candidates = search_cached_items_data(
+            query="",
+            category=category,
+            days=CACHE_SEARCH_DAYS,
+            limit=limit * RECOMMENDATION_FALLBACK_CANDIDATE_MULTIPLIER,
+        )
         candidates = _prefer_exact_category(recent_candidates, category=category, limit=limit)
+        logger.info(
+            "Recommendation fallback candidates selected",
+            extra={"query": query, "category": category, "candidate_count": len(candidates)},
+        )
 
     profile = get_profile_data()
-    watchlist = list_watchlist_data(type="all", status="all")
+    watchlist = list_watchlist_data(media_type="all", status="all")
     prompt = _recommend_media_prompt(
         query=query,
         category=category,
@@ -43,6 +71,18 @@ def recommend_media_data(
         candidates=candidates,
     )
     llm = ask_llm_data(prompt)
+    logger.info(
+        "Recommendation generated",
+        extra={
+            "query": query,
+            "category": category,
+            "refreshed": refresh,
+            "fetched_count": fetched_count,
+            "candidate_count": len(candidates),
+            "provider": llm["provider"],
+            "model": llm["model"],
+        },
+    )
 
     return {
         "query": query,
@@ -58,11 +98,21 @@ def recommend_media_data(
 
 
 def _search_recommendation_candidates(query: str, category: Category, limit: int) -> list[dict[str, Any]]:
+    """Ищет уникальных RSS-кандидатов по вариантам запроса.
+
+    Args:
+        query: Исходный пользовательский запрос.
+        category: Категория поиска.
+        limit: Максимальное число кандидатов.
+
+    Returns:
+        Дедуплицированный список RSS-кандидатов.
+    """
     seen: set[str] = set()
     candidates: list[dict[str, Any]] = []
 
     for variant in _query_variants(query):
-        for item in search_cached_items_data(query=variant, category=category, days=30, limit=limit):
+        for item in search_cached_items_data(query=variant, category=category, days=CACHE_SEARCH_DAYS, limit=limit):
             url = str(item.get("url", "")).lower()
             if url in seen:
                 continue
@@ -75,14 +125,32 @@ def _search_recommendation_candidates(query: str, category: Category, limit: int
 
 
 def _query_variants(query: str) -> list[str]:
+    """Строит варианты поискового запроса для кеша.
+
+    Args:
+        query: Исходный пользовательский запрос.
+
+    Returns:
+        Список базового и дополнительных вариантов запроса.
+    """
     variants = [query]
     normalized = query.lower()
-    if VIBE_MARKER in normalized or "vibe" in normalized:
-        variants.extend([COZY_RU, ATMOSPHERIC_RU, "cozy", "vibe"])
+    if RECOMMENDATION_KEYWORD_MARKER in normalized or "vibe" in normalized:
+        variants.extend(RECOMMENDATION_KEYWORD_VARIANTS)
     return variants
 
 
 def _prefer_exact_category(candidates: list[dict[str, Any]], category: Category, limit: int) -> list[dict[str, Any]]:
+    """Сортирует fallback-кандидатов по близости категории.
+
+    Args:
+        candidates: Набор RSS-кандидатов.
+        category: Желаемая категория.
+        limit: Максимальное число элементов в результате.
+
+    Returns:
+        Приоритетный список exact → mixed → other.
+    """
     if category == "all":
         return candidates[:limit]
 
@@ -99,6 +167,18 @@ def _recommend_media_prompt(
     watchlist: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
 ) -> str:
+    """Проксирует сборку LLM-prompt для рекомендаций.
+
+    Args:
+        query: Исходный пользовательский запрос.
+        category: Категория поиска.
+        profile: Профиль пользователя.
+        watchlist: Текущий watchlist.
+        candidates: RSS-кандидаты.
+
+    Returns:
+        Готовый prompt для LLM.
+    """
     return build_feed_recommendation_prompt(
         query=query,
         category=category,

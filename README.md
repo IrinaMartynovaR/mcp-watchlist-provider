@@ -1,6 +1,6 @@
 # WatchQuest MCP
 
-MVP MCP-сервиса для персонального агента по играм, фильмам и сериалам. Основной источник свежего контекста - RSS-фиды из `data/sources.json`, опционально расширяемые через RSS-Bridge.
+MVP MCP-сервиса для персонального агента по играм, фильмам и сериалам. Основной источник свежего контекста - RSS-фиды из `data/sources.json`; RSS-Bridge может использоваться как отдельный инфраструктурный сервис для источников без удобного RSS.
 
 ## Архитектура
 
@@ -10,8 +10,8 @@ MVP MCP-сервиса для персонального агента по иг�
 - `domain` - доменные модели и локальное JSON-хранилище.
 - `llm_core` - нейтральный LLM-слой: settings, client factory, provider adapters и prompts.
 - `mcp_server` - MCP server entrypoint.
-- `mcp_tools` - реализации MCP tools.
-- `rss_feeds` - RSS/RSS-Bridge слой и RSS settings.
+- `mcp_tools` - только runtime MCP tools.
+- `rss_feeds` - RSS fetch слой и RSS settings.
 
 LLM-слой не завязан на конкретного провайдера. Сейчас реализован provider adapter для Z.AI GLM-compatible API, но наружу код работает через `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`.
 
@@ -75,19 +75,14 @@ uv run watchquest-telegram-bot
 validate_sources(category="all", limit_per_source=3)
 refresh_feeds(category="all", limit_per_source=20)
 search_cached_items(query="cozy RPG story", category="games", days=30, limit=10)
+recommend_media(query="посоветуй вайбовую игру", category="games")
 ```
 
-RSS-Bridge нужен для сайтов, у которых нет удобного RSS.
+RSS-Bridge запускается как отдельная инфраструктура. Сервис не содержит admin tools для генерации RSS-Bridge URL; готовые feed URL должны лежать в `data/sources.json`.
 
 ```bash
 docker compose -f compose/docker-compose.rss-bridge.yml up -d
 ```
-
-Tools:
-
-- `list_rss_bridges`
-- `build_rss_bridge_feed_url`
-- `add_rss_bridge_source`
 
 ## Langfuse
 
@@ -118,17 +113,15 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 }
 ```
 
-## Основные tools
+## Public MCP Tools
 
-- `validate_sources`
-- `refresh_feeds`
-- `list_sources`
-- `search_cached_items`
 - `get_profile`
 - `update_profile`
+- `list_sources`
+- `validate_sources`
+- `refresh_feeds`
+- `search_cached_items`
 - `add_to_watchlist`
 - `list_watchlist`
-- `rate_watchlist`
-- `ask_llm`
-- `recommend_with_llm`
+- `rate_watchlist_item`
 - `recommend_media`
