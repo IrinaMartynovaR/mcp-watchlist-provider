@@ -11,18 +11,41 @@ MEDIA_TYPES: tuple[MediaType, ...] = ("game", "movie", "series", "article", "unk
 
 
 def parse_category(value: str) -> Category:
+    """Преобразует строку в поддерживаемую категорию.
+
+    Args:
+        value: Значение категории из внешнего ввода.
+
+    Returns:
+        Валидированную категорию WatchQuest.
+
+    Raises:
+        ValueError: Если категория не поддерживается.
+    """
     if value in CATEGORIES:
         return value
     raise ValueError(f"Unsupported category: {value}")
 
 
 def parse_media_type(value: str) -> MediaType:
+    """Преобразует строку в поддерживаемый тип медиа.
+
+    Args:
+        value: Значение типа медиа из внешнего ввода.
+
+    Returns:
+        Валидированный тип медиа.
+
+    Raises:
+        ValueError: Если тип медиа не поддерживается.
+    """
     if value in MEDIA_TYPES:
         return value
     raise ValueError(f"Unsupported media type: {value}")
 
 
 class Source(BaseModel):
+    """Описывает один RSS-источник WatchQuest."""
     name: str
     category: Category = "mixed"
     language: str = "unknown"
@@ -30,6 +53,7 @@ class Source(BaseModel):
 
 
 class FeedItem(BaseModel):
+    """Описывает нормализованную запись из RSS-ленты."""
     title: str
     url: str
     source: str
@@ -41,6 +65,7 @@ class FeedItem(BaseModel):
 
 
 class WatchlistItem(BaseModel):
+    """Описывает элемент пользовательского watchlist."""
     title: str
     type: MediaType = "unknown"
     url: str | None = None

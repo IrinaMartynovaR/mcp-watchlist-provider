@@ -1,4 +1,3 @@
-import json
 from typing import Any
 
 from domain.models import Category
@@ -10,25 +9,6 @@ SYSTEM_PROMPT = (
 )
 
 
-def build_context_recommendation_prompt(
-    query: str,
-    profile: dict[str, Any],
-    watchlist: list[dict[str, Any]],
-    candidates: list[dict[str, Any]],
-) -> str:
-    context = {
-        "user_query": query,
-        "profile": profile,
-        "watchlist": watchlist[:20],
-        "recent_candidates": candidates,
-    }
-    return (
-        "Use this JSON context to produce 3-5 recommendations. "
-        "For each recommendation include: title, type, why it fits, and next action.\n\n"
-        f"{json.dumps(context, ensure_ascii=False, indent=2, default=str)}"
-    )
-
-
 def build_feed_recommendation_prompt(
     query: str,
     category: Category,
@@ -36,6 +16,18 @@ def build_feed_recommendation_prompt(
     watchlist: list[dict[str, Any]],
     candidates: list[dict[str, Any]],
 ) -> str:
+    """Собирает prompt для рекомендации на базе RSS-контекста.
+
+    Args:
+        query: Исходный пользовательский запрос.
+        category: Нормализованная категория поиска.
+        profile: Профиль вкусов пользователя.
+        watchlist: Уже сохранённые элементы watchlist.
+        candidates: Кандидаты, найденные в RSS-кеше.
+
+    Returns:
+        Финальный текст prompt для LLM.
+    """
     return (
         "You are creating a practical WatchQuest recommendation. "
         "Return 1-5 recommendations in the user's language. "

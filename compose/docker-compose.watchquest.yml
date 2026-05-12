@@ -25,9 +25,7 @@ services:
     environment:
       WATCHQUEST_DATA_DIR: /app/data
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://host.docker.internal:3000}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      RSS_BRIDGE_BASE_URL: http://rss-bridge
+      LANGFUSE_BASE_URL: http://host.docker.internal:3000
     depends_on:
       - rss-bridge
     extra_hosts:
@@ -47,9 +45,7 @@ services:
     environment:
       WATCHQUEST_DATA_DIR: /app/data
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://host.docker.internal:3000}
-      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
-      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      RSS_BRIDGE_BASE_URL: http://rss-bridge
+      LANGFUSE_BASE_URL: http://host.docker.internal:3000
     depends_on:
       - rss-bridge
     extra_hosts:

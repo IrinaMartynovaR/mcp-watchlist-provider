@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -7,11 +8,14 @@ import feedparser
 import httpx
 
 from domain.models import FeedItem, Source
-from rss_feeds.settings import RSS_FETCH_TIMEOUT_SECONDS, RSS_USER_AGENT
+from rss_feeds.settings import RSS_FETCH_ITEM_LIMIT, RSS_FETCH_TIMEOUT_SECONDS, RSS_USER_AGENT
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class RSSFetchResult:
+    """Хранит результат чтения одного RSS-источника."""
     source: Source
     url: str
     ok: bool
@@ -21,6 +25,14 @@ class RSSFetchResult:
 
 
 def _parse_date(entry: Any) -> datetime:
+    """Извлекает дату публикации RSS-entry.
+
+    Args:
+        entry: Сырые данные feedparser для одной записи.
+
+    Returns:
+        Дату публикации в UTC либо текущий момент при отсутствии даты.
+    """
     raw = getattr(entry, "published", None) or getattr(entry, "updated", None)
     if not raw:
         return datetime.now(UTC)
@@ -35,6 +47,14 @@ def _parse_date(entry: Any) -> datetime:
 
 
 def _entry_tags(entry: Any) -> list[str]:
+    """Извлекает непустые теги RSS-entry.
+
+    Args:
+        entry: Сырые данные feedparser для одной записи.
+
+    Returns:
+        Список найденных тегов.
+    """
     tags: list[str] = []
     for tag in getattr(entry, "tags", []) or []:
         term = getattr(tag, "term", "")
@@ -44,6 +64,16 @@ def _entry_tags(entry: Any) -> list[str]:
 
 
 def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
+    """Нормализует записи feedparser в доменные RSS-элементы.
+
+    Args:
+        parsed: Результат `feedparser.parse`.
+        source: Исходный RSS-источник.
+        limit: Максимальное число записей для разбора.
+
+    Returns:
+        Валидированные элементы RSS-кеша.
+    """
     items: list[FeedItem] = []
 
     for entry in parsed.entries[:limit]:
@@ -72,10 +102,24 @@ def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
 
 def fetch_rss_source_result(
     source: Source,
-    limit: int = 20,
+    limit: int = RSS_FETCH_ITEM_LIMIT,
     timeout: float = RSS_FETCH_TIMEOUT_SECONDS,
 ) -> RSSFetchResult:
+    """Загружает RSS-источник и возвращает диагностику результата.
+
+    Args:
+        source: Описанный в конфиге RSS-источник.
+        limit: Максимальное число записей для разбора.
+        timeout: Таймаут HTTP-запроса в секундах.
+
+    Returns:
+        Структуру с элементами, статусом, ошибкой и HTTP-кодом.
+    """
     url = str(source.url)
+    logger.info(
+        "Fetching RSS source",
+        extra={"source": source.name, "category": source.category, "url": url, "limit": limit},
+    )
 
     try:
         with httpx.Client(
@@ -94,6 +138,15 @@ def fetch_rss_source_result(
         if not items and error is None:
             error = "Feed has no usable entries"
 
+        logger.info(
+            "RSS source fetched",
+            extra={
+                "source": source.name,
+                "status_code": response.status_code,
+                "item_count": len(items),
+                "ok": bool(items),
+            },
+        )
         return RSSFetchResult(
             source=source,
             url=url,
@@ -103,6 +156,10 @@ def fetch_rss_source_result(
             status_code=response.status_code,
         )
     except Exception as exc:
+        logger.warning(
+            "RSS source fetch failed",
+            extra={"source": source.name, "url": url, "error": str(exc)},
+        )
         return RSSFetchResult(
             source=source,
             url=url,
@@ -110,8 +167,4 @@ def fetch_rss_source_result(
             items=[],
             error=str(exc),
         )
-
-
-def fetch_rss_source(source: Source, limit: int = 20) -> list[FeedItem]:
-    return fetch_rss_source_result(source, limit=limit).items
 

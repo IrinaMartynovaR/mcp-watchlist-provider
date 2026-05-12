@@ -51,6 +51,7 @@ select = [
     "W",
 ]
 ignore = []
+allowed-confusables = ["Н", "а", "б", "г", "е", "о", "р", "с", "у"]
 
 [tool.ruff.format]
 quote-style = "double"
