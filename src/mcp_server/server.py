@@ -3,7 +3,6 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from app.logging_config import configure_logging
-from app.observability import get_langfuse_client
 from domain.models import parse_category
 from mcp_tools.media import (
     add_to_watchlist_data,
@@ -141,7 +140,6 @@ def watchlist_resource() -> str:
 def main() -> None:
     """Запускает MCP-сервер WatchQuest."""
     configure_logging()
-    get_langfuse_client()
     mcp.run()
 
 

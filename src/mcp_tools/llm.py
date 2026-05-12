@@ -1,13 +1,14 @@
 from typing import Any
 
-from app.observability import observe
+from langfuse import observe
+
 from llm_core.client import create_llm_client
 from llm_core.prompts.recommendations import SYSTEM_PROMPT
 from llm_core.schemas import ChatMessage
 from llm_core.settings import LLM_MODEL, LLM_PROVIDER
 
 
-@observe("ask_llm")
+@observe(name="ask_llm", as_type="generation")
 def ask_llm_data(prompt: str, system: str | None = None) -> dict[str, Any]:
     """Отправляет prompt в LLM и возвращает нормализованный ответ.
 
