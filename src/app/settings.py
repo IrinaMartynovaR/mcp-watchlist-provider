@@ -19,6 +19,34 @@ class BackendSettings(BaseSettings):
     telegram_candidate_preview_limit: int = Field(default=5, alias="TELEGRAM_CANDIDATE_PREVIEW_LIMIT")
     telegram_recommendation_limit: int = Field(default=5, alias="TELEGRAM_RECOMMENDATION_LIMIT")
     telegram_recommendation_source_limit: int = Field(default=8, alias="TELEGRAM_RECOMMENDATION_SOURCE_LIMIT")
+    telegram_feedback_callback_prefix: str = Field(default="feedback", alias="TELEGRAM_FEEDBACK_CALLBACK_PREFIX")
+    telegram_watchlist_request_phrases: str = Field(
+        default="watchlist,вотчлист,покажи список,покажи мой список,что в списке,мой список",
+        alias="TELEGRAM_WATCHLIST_REQUEST_PHRASES",
+    )
+    telegram_feedback_like_label: str = Field(default="👍 Подходит", alias="TELEGRAM_FEEDBACK_LIKE_LABEL")
+    telegram_feedback_dislike_label: str = Field(default="👎 Не то", alias="TELEGRAM_FEEDBACK_DISLIKE_LABEL")
+    telegram_feedback_watchlist_label: str = Field(default="➕ В watchlist", alias="TELEGRAM_FEEDBACK_WATCHLIST_LABEL")
+    telegram_feedback_block_similar_label: str = Field(
+        default="🚫 Не предлагать похожее",
+        alias="TELEGRAM_FEEDBACK_BLOCK_SIMILAR_LABEL",
+    )
+    telegram_feedback_like_response: str = Field(
+        default="Запомнила: это тебе подходит.",
+        alias="TELEGRAM_FEEDBACK_LIKE_RESPONSE",
+    )
+    telegram_feedback_dislike_response: str = Field(
+        default="Запомнила: это не то.",
+        alias="TELEGRAM_FEEDBACK_DISLIKE_RESPONSE",
+    )
+    telegram_feedback_watchlist_response: str = Field(
+        default="Добавила в watchlist.",
+        alias="TELEGRAM_FEEDBACK_WATCHLIST_RESPONSE",
+    )
+    telegram_feedback_block_similar_response: str = Field(
+        default="Запомнила: похожее лучше не предлагать.",
+        alias="TELEGRAM_FEEDBACK_BLOCK_SIMILAR_RESPONSE",
+    )
     langfuse_public_key: str = Field(default="", alias="LANGFUSE_PUBLIC_KEY")
     langfuse_secret_key: str = Field(default="", alias="LANGFUSE_SECRET_KEY")
     langfuse_host: str = Field(default="http://localhost:3000", alias="LANGFUSE_HOST")
@@ -57,9 +85,37 @@ class BackendSettings(BaseSettings):
         return self.data_dir / "cache.json"
 
     @property
+    def recommendations_file(self) -> Path:
+        """Возвращает путь к JSON-файлу истории рекомендаций."""
+        return self.data_dir / "recommendations.json"
+
+    @property
+    def feedback_file(self) -> Path:
+        """Возвращает путь к JSON-файлу пользовательского feedback."""
+        return self.data_dir / "feedback.json"
+
+    @property
     def normalized_telegram_bot_token(self) -> str:
         """Возвращает очищенный Telegram bot token."""
         return self.telegram_bot_token.strip()
+
+    @property
+    def normalized_telegram_feedback_callback_prefix(self) -> str:
+        """Возвращает безопасный префикс Telegram callback для feedback."""
+        return self.telegram_feedback_callback_prefix.strip() or "feedback"
+
+    @property
+    def normalized_telegram_watchlist_request_phrases(self) -> tuple[str, ...]:
+        """Разбирает фразы, по которым Telegram-бот показывает watchlist.
+
+        Returns:
+            Непустые фразы в нижнем регистре.
+        """
+        return tuple(
+            phrase.strip().lower()
+            for phrase in self.telegram_watchlist_request_phrases.split(",")
+            if phrase.strip()
+        )
 
     @property
     def normalized_langfuse_public_key(self) -> str:
@@ -103,20 +159,3 @@ def get_backend_settings() -> BackendSettings:
 
 
 backend_settings = get_backend_settings()
-
-PROFILE_FILE = backend_settings.profile_file
-WATCHLIST_FILE = backend_settings.watchlist_file
-SOURCES_FILE = backend_settings.sources_file
-CACHE_FILE = backend_settings.cache_file
-TELEGRAM_BOT_TOKEN = backend_settings.normalized_telegram_bot_token
-TELEGRAM_MAX_MESSAGE_LENGTH = backend_settings.telegram_max_message_length
-TELEGRAM_CANDIDATE_PREVIEW_LIMIT = backend_settings.telegram_candidate_preview_limit
-TELEGRAM_RECOMMENDATION_LIMIT = backend_settings.telegram_recommendation_limit
-TELEGRAM_RECOMMENDATION_SOURCE_LIMIT = backend_settings.telegram_recommendation_source_limit
-LANGFUSE_PUBLIC_KEY = backend_settings.normalized_langfuse_public_key
-LANGFUSE_SECRET_KEY = backend_settings.normalized_langfuse_secret_key
-LANGFUSE_HOST = backend_settings.normalized_langfuse_host
-LANGFUSE_ENABLED = bool(LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY and LANGFUSE_HOST)
-LOG_LEVEL = backend_settings.normalized_log_level
-LOG_FORMAT = backend_settings.normalized_log_format
-LOG_DATE_FORMAT = backend_settings.normalized_log_date_format

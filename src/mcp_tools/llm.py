@@ -5,7 +5,7 @@ from langfuse import observe
 from llm_core.client import create_llm_client
 from llm_core.prompts.recommendations import SYSTEM_PROMPT
 from llm_core.schemas import ChatMessage
-from llm_core.settings import LLM_MODEL, LLM_PROVIDER
+from llm_core.settings import llm_settings
 
 
 @observe(name="ask_llm", as_type="generation")
@@ -25,5 +25,9 @@ def ask_llm_data(prompt: str, system: str | None = None) -> dict[str, Any]:
         {"role": "user", "content": prompt},
     ]
     response = client.chat(messages)
-    return {"provider": LLM_PROVIDER, "model": LLM_MODEL, "response": response}
+    return {
+        "provider": llm_settings.normalized_provider,
+        "model": llm_settings.normalized_model,
+        "response": response,
+    }
 
