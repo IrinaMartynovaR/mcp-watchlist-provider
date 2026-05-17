@@ -1,13 +1,15 @@
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
 Category = Literal["games", "movies", "series", "movies_series", "mixed", "all"]
 MediaType = Literal["game", "movie", "series", "article", "unknown"]
+FeedbackAction = Literal["like", "dislike", "watchlist", "block_similar"]
 
 CATEGORIES: tuple[Category, ...] = ("games", "movies", "series", "movies_series", "mixed", "all")
 MEDIA_TYPES: tuple[MediaType, ...] = ("game", "movie", "series", "article", "unknown")
+FEEDBACK_ACTIONS: tuple[FeedbackAction, ...] = ("like", "dislike", "watchlist", "block_similar")
 
 
 def parse_category(value: str) -> Category:
@@ -44,6 +46,23 @@ def parse_media_type(value: str) -> MediaType:
     raise ValueError(f"Unsupported media type: {value}")
 
 
+def parse_feedback_action(value: str) -> FeedbackAction:
+    """Преобразует строку в поддерживаемое feedback-действие.
+
+    Args:
+        value: Значение действия из callback data.
+
+    Returns:
+        Валидированное feedback-действие.
+
+    Raises:
+        ValueError: Если действие не поддерживается.
+    """
+    if value in FEEDBACK_ACTIONS:
+        return value
+    raise ValueError(f"Unsupported feedback action: {value}")
+
+
 class Source(BaseModel):
     """Описывает один RSS-источник WatchQuest."""
     name: str
@@ -75,4 +94,27 @@ class WatchlistItem(BaseModel):
     rating: int | None = Field(default=None, ge=1, le=10)
     comment: str = ""
     added_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RecommendationRecord(BaseModel):
+    """Описывает сохранённую рекомендацию и её контекст."""
+    id: str
+    query: str
+    category: Category = "all"
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    recommendation: str = ""
+    model: str = ""
+    provider: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RecommendationFeedback(BaseModel):
+    """Описывает пользовательскую оценку сохранённой рекомендации."""
+    recommendation_id: str
+    action: FeedbackAction
+    query: str = ""
+    category: Category = "all"
+    title: str | None = None
+    source: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

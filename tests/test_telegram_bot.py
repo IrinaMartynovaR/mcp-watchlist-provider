@@ -1,4 +1,11 @@
-from app.telegram_bot import format_recommendation_response, infer_category, split_telegram_text
+from app.telegram_bot import (
+    format_recommendation_response,
+    format_watchlist_response,
+    infer_category,
+    is_watchlist_request,
+    recommendation_feedback_keyboard,
+    split_telegram_text,
+)
 
 RU_GAME_QUERY = (
     "\u043f\u043e\u0441\u043e\u0432\u0435\u0442\u0443\u0439 "
@@ -44,3 +51,36 @@ def test_split_telegram_text_keeps_chunks_under_limit() -> None:
 
     assert len(chunks) > 1
     assert all(len(chunk) <= 50 for chunk in chunks)
+
+
+def test_watchlist_request_detects_ru_and_en_text() -> None:
+    assert is_watchlist_request("покажи мой вотчлист")
+    assert is_watchlist_request("show watchlist")
+
+
+def test_format_watchlist_response_handles_items() -> None:
+    formatted = format_watchlist_response(
+        [
+            {
+                "title": "Outer Wilds",
+                "type": "game",
+                "status": "planned",
+                "source": "manual",
+            }
+        ]
+    )
+
+    assert "Outer Wilds" in formatted
+    assert "manual" in formatted
+
+
+def test_recommendation_feedback_keyboard_contains_expected_callbacks() -> None:
+    keyboard = recommendation_feedback_keyboard("rec-1")
+    callback_data = [
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+    ]
+
+    assert "feedback:like:rec-1" in callback_data
+    assert "feedback:watchlist:rec-1" in callback_data

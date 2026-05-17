@@ -57,10 +57,3 @@ def get_llm_settings() -> LLMSettings:
 
 
 llm_settings = get_llm_settings()
-
-LLM_PROVIDER = llm_settings.normalized_provider
-LLM_API_KEY = llm_settings.normalized_api_key
-LLM_BASE_URL = llm_settings.normalized_base_url
-LLM_MODEL = llm_settings.normalized_model
-LLM_TIMEOUT_SECONDS = llm_settings.timeout_seconds
-LLM_TEMPERATURE = llm_settings.temperature

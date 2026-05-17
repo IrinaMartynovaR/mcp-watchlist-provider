@@ -4,17 +4,13 @@ from typing import Any
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from app.logging_config import configure_logging
-from app.settings import (
-    TELEGRAM_BOT_TOKEN,
-    TELEGRAM_CANDIDATE_PREVIEW_LIMIT,
-    TELEGRAM_MAX_MESSAGE_LENGTH,
-    TELEGRAM_RECOMMENDATION_LIMIT,
-    TELEGRAM_RECOMMENDATION_SOURCE_LIMIT,
-)
+from app.settings import backend_settings
 from domain.models import Category
+from mcp_tools.feedback import apply_recommendation_feedback
+from mcp_tools.media import list_watchlist_data
 from mcp_tools.recommendation import recommend_media_data
 
 LOGGER = logging.getLogger(__name__)
@@ -33,9 +29,9 @@ HELP_TEXT = (
     "/start - начать\n"
     "/help - помощь\n"
     "/recommend <запрос> - рекомендация через RSS и LLM\n\n"
+    "/watchlist - показать watchlist\n\n"
     "Можно просто написать запрос обычным сообщением."
 )
-
 
 def infer_category(text: str) -> Category:
     """Определяет медиакатегорию по тексту Telegram-запроса.
@@ -56,7 +52,7 @@ def infer_category(text: str) -> Category:
     return "all"
 
 
-def split_telegram_text(text: str, limit: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> list[str]:
+def split_telegram_text(text: str, limit: int = backend_settings.telegram_max_message_length) -> list[str]:
     """Разбивает длинный текст на Telegram-совместимые чанки.
 
     Args:
@@ -87,6 +83,54 @@ def split_telegram_text(text: str, limit: int = TELEGRAM_MAX_MESSAGE_LENGTH) -> 
     return result
 
 
+def is_watchlist_request(text: str) -> bool:
+    """Проверяет, просит ли пользователь показать watchlist.
+
+    Args:
+        text: Пользовательское сообщение.
+
+    Returns:
+        `True`, если сообщение похоже на запрос watchlist.
+    """
+    normalized = text.lower()
+    return any(phrase in normalized for phrase in backend_settings.normalized_telegram_watchlist_request_phrases)
+
+
+def recommendation_feedback_keyboard(recommendation_id: str) -> InlineKeyboardMarkup:
+    """Создаёт inline-клавиатуру оценки рекомендации.
+
+    Args:
+        recommendation_id: Идентификатор сохранённой рекомендации.
+
+    Returns:
+        Telegram inline-клавиатуру с feedback-действиями.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=backend_settings.telegram_feedback_like_label,
+                    callback_data=f"{backend_settings.normalized_telegram_feedback_callback_prefix}:like:{recommendation_id}",
+                ),
+                InlineKeyboardButton(
+                    text=backend_settings.telegram_feedback_dislike_label,
+                    callback_data=f"{backend_settings.normalized_telegram_feedback_callback_prefix}:dislike:{recommendation_id}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=backend_settings.telegram_feedback_watchlist_label,
+                    callback_data=f"{backend_settings.normalized_telegram_feedback_callback_prefix}:watchlist:{recommendation_id}",
+                ),
+                InlineKeyboardButton(
+                    text=backend_settings.telegram_feedback_block_similar_label,
+                    callback_data=f"{backend_settings.normalized_telegram_feedback_callback_prefix}:block_similar:{recommendation_id}",
+                ),
+            ],
+        ]
+    )
+
+
 def format_recommendation_response(result: dict[str, Any]) -> str:
     """Форматирует результат recommendation pipeline для Telegram.
 
@@ -101,7 +145,7 @@ def format_recommendation_response(result: dict[str, Any]) -> str:
     candidate_lines: list[str] = []
 
     if isinstance(candidates, list) and candidates:
-        for item in candidates[:TELEGRAM_CANDIDATE_PREVIEW_LIMIT]:
+        for item in candidates[: backend_settings.telegram_candidate_preview_limit]:
             if not isinstance(item, dict):
                 continue
             title = str(item.get("title") or "Без названия").strip()
@@ -114,6 +158,29 @@ def format_recommendation_response(result: dict[str, Any]) -> str:
         parts.append("Кандидаты из RSS:\n" + "\n".join(candidate_lines))
 
     return "\n\n".join(parts)
+
+
+def format_watchlist_response(items: list[dict[str, Any]]) -> str:
+    """Форматирует watchlist для Telegram.
+
+    Args:
+        items: Watchlist items из хранилища.
+
+    Returns:
+        Пользовательский текст со списком элементов.
+    """
+    if not items:
+        return "Watchlist пока пустой."
+
+    lines = ["Твой watchlist:"]
+    for index, item in enumerate(items, start=1):
+        title = str(item.get("title") or "Без названия").strip()
+        media_type = str(item.get("type") or "unknown").strip()
+        status = str(item.get("status") or "planned").strip()
+        source = str(item.get("source") or "").strip()
+        suffix = f" — {source}" if source else ""
+        lines.append(f"{index}. {title} ({media_type}, {status}){suffix}")
+    return "\n".join(lines)
 
 
 async def answer_recommendation(message: Message, query: str) -> None:
@@ -138,8 +205,8 @@ async def answer_recommendation(message: Message, query: str) -> None:
             query=query,
             category=category,
             refresh=True,
-            limit=TELEGRAM_RECOMMENDATION_LIMIT,
-            limit_per_source=TELEGRAM_RECOMMENDATION_SOURCE_LIMIT,
+            limit=backend_settings.telegram_recommendation_limit,
+            limit_per_source=backend_settings.telegram_recommendation_source_limit,
         )
     except Exception:
         LOGGER.exception("Telegram recommendation failed")
@@ -148,10 +215,55 @@ async def answer_recommendation(message: Message, query: str) -> None:
 
     for chunk in split_telegram_text(format_recommendation_response(result)):
         await message.answer(chunk, disable_web_page_preview=True)
+    recommendation_id = str(result.get("id") or "").strip()
+    if recommendation_id:
+        await message.answer(
+            "Оцени рекомендацию, чтобы я лучше подстраивалась под твой вкус.",
+            reply_markup=recommendation_feedback_keyboard(recommendation_id),
+        )
     LOGGER.info(
         "Telegram recommendation delivered",
         extra={"category": category, "candidate_count": result.get("candidate_count", 0)},
     )
+
+
+async def answer_watchlist(message: Message) -> None:
+    """Отправляет пользователю текущий watchlist.
+
+    Args:
+        message: Входящее Telegram-сообщение.
+    """
+    items = await asyncio.to_thread(list_watchlist_data, media_type="all", status="all")
+    for chunk in split_telegram_text(format_watchlist_response(items)):
+        await message.answer(chunk, disable_web_page_preview=True)
+
+
+async def answer_feedback(callback: CallbackQuery) -> None:
+    """Обрабатывает inline feedback по рекомендации.
+
+    Args:
+        callback: Telegram callback query от inline-кнопки.
+    """
+    raw_data = callback.data or ""
+    parts = raw_data.split(":", maxsplit=2)
+    if len(parts) != 3:
+        await callback.answer("Некорректная кнопка feedback.", show_alert=True)
+        return
+    _, action, recommendation_id = parts
+    try:
+        result = await asyncio.to_thread(apply_recommendation_feedback, recommendation_id, action)
+    except Exception:
+        LOGGER.exception("Telegram feedback failed")
+        await callback.answer("Не смогла сохранить оценку. Посмотри логи.", show_alert=True)
+        return
+
+    messages = {
+        "like": backend_settings.telegram_feedback_like_response,
+        "dislike": backend_settings.telegram_feedback_dislike_response,
+        "watchlist": backend_settings.telegram_feedback_watchlist_response,
+        "block_similar": backend_settings.telegram_feedback_block_similar_response,
+    }
+    await callback.answer(messages.get(str(result["action"]), "Оценка сохранена."))
 
 
 def create_dispatcher() -> Dispatcher:
@@ -176,9 +288,21 @@ def create_dispatcher() -> Dispatcher:
         query = text.partition(" ")[2]
         await answer_recommendation(message, query)
 
+    @dp.message(Command("watchlist"))
+    async def watchlist_handler(message: Message) -> None:
+        await answer_watchlist(message)
+
+    @dp.callback_query(F.data.startswith(f"{backend_settings.normalized_telegram_feedback_callback_prefix}:"))
+    async def feedback_handler(callback: CallbackQuery) -> None:
+        await answer_feedback(callback)
+
     @dp.message(F.text)
     async def text_handler(message: Message) -> None:
-        await answer_recommendation(message, message.text or "")
+        text = message.text or ""
+        if is_watchlist_request(text):
+            await answer_watchlist(message)
+            return
+        await answer_recommendation(message, text)
 
     return dp
 
@@ -189,10 +313,10 @@ async def run_bot() -> None:
     Raises:
         RuntimeError: Если токен Telegram-бота отсутствует.
     """
-    if not TELEGRAM_BOT_TOKEN:
+    if not backend_settings.normalized_telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
 
-    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    bot = Bot(token=backend_settings.normalized_telegram_bot_token)
     dispatcher = create_dispatcher()
     await bot.delete_webhook(drop_pending_updates=True)
     LOGGER.info("Telegram bot polling started")

@@ -1,10 +1,13 @@
 import logging
 from typing import Any
+from uuid import uuid4
 
 from langfuse import observe
 
 from domain.models import Category
 from llm_core.prompts.recommendations import build_feed_recommendation_prompt
+from llm_core.settings import llm_settings
+from mcp_tools.feedback import save_recommendation_result
 from mcp_tools.llm import ask_llm_data
 from mcp_tools.media import (
     fetch_latest_items_data,
@@ -12,14 +15,7 @@ from mcp_tools.media import (
     list_watchlist_data,
     search_cached_items_data,
 )
-from mcp_tools.settings import (
-    CACHE_SEARCH_DAYS,
-    RECOMMENDATION_FALLBACK_CANDIDATE_MULTIPLIER,
-    RECOMMENDATION_KEYWORD_MARKER,
-    RECOMMENDATION_KEYWORD_VARIANTS,
-    RECOMMENDATION_LIMIT,
-    RECOMMENDATION_SOURCE_LIMIT,
-)
+from mcp_tools.settings import tool_settings
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +25,8 @@ def recommend_media_data(
     query: str,
     category: Category = "all",
     refresh: bool = True,
-    limit: int = RECOMMENDATION_LIMIT,
-    limit_per_source: int = RECOMMENDATION_SOURCE_LIMIT,
+    limit: int = tool_settings.recommendation_limit,
+    limit_per_source: int = tool_settings.recommendation_source_limit,
 ) -> dict[str, Any]:
     """Собирает рекомендацию из RSS-кандидатов и LLM-ответа.
 
@@ -54,8 +50,8 @@ def recommend_media_data(
         recent_candidates = search_cached_items_data(
             query="",
             category=category,
-            days=CACHE_SEARCH_DAYS,
-            limit=limit * RECOMMENDATION_FALLBACK_CANDIDATE_MULTIPLIER,
+            days=tool_settings.cache_search_days,
+            limit=limit * tool_settings.recommendation_fallback_candidate_multiplier,
         )
         candidates = _prefer_exact_category(recent_candidates, category=category, limit=limit)
         fallback_used = True
@@ -65,6 +61,7 @@ def recommend_media_data(
         )
 
     profile = get_profile_data()
+    candidates = _rank_candidates_by_learned_preferences(candidates, profile)
     watchlist = list_watchlist_data(media_type="all", status="all")
     prompt = _recommend_media_prompt(
         query=query,
@@ -73,7 +70,16 @@ def recommend_media_data(
         watchlist=watchlist,
         candidates=candidates,
     )
-    llm = ask_llm_data(prompt)
+    llm_error: str | None = None
+    try:
+        llm = ask_llm_data(prompt)
+    except RuntimeError as exc:
+        llm_error = str(exc)
+        llm = _fallback_llm_result(error=llm_error, candidates=candidates)
+        logger.warning(
+            "Recommendation LLM fallback used",
+            extra={"query": query, "category": category, "error": llm_error},
+        )
     logger.info(
         "Recommendation generated",
         extra={
@@ -87,7 +93,8 @@ def recommend_media_data(
         },
     )
 
-    return {
+    result = {
+        "id": uuid4().hex,
         "query": query,
         "category": category,
         "refreshed": refresh,
@@ -97,6 +104,7 @@ def recommend_media_data(
         "recommendation": llm["response"],
         "model": llm["model"],
         "provider": llm["provider"],
+        "llm_error": llm_error,
         "tool_usage": {
             "fetch_latest_items": refresh,
             "search_cached_items": True,
@@ -118,6 +126,10 @@ def recommend_media_data(
             "recommend_media": True,
         },
     }
+    if llm_error:
+        result["llm_error"] = llm_error
+    save_recommendation_result(result)
+    return result
 
 
 def _search_recommendation_candidates(query: str, category: Category, limit: int) -> list[dict[str, Any]]:
@@ -135,16 +147,64 @@ def _search_recommendation_candidates(query: str, category: Category, limit: int
     candidates: list[dict[str, Any]] = []
 
     for variant in _query_variants(query):
-        for item in search_cached_items_data(query=variant, category=category, days=CACHE_SEARCH_DAYS, limit=limit):
-            url = str(item.get("url", "")).lower()
-            if url in seen:
+        for item in search_cached_items_data(
+            query=variant,
+            category=category,
+            days=tool_settings.cache_search_days,
+            limit=limit,
+        ):
+            key = _candidate_key(item)
+            if key in seen:
                 continue
-            seen.add(url)
+            seen.add(key)
             candidates.append(item)
             if len(candidates) >= limit:
                 return candidates
 
     return candidates
+
+
+def _candidate_key(item: dict[str, Any]) -> str:
+    """Строит стабильный ключ RSS-кандидата для дедупликации.
+
+    Args:
+        item: RSS-кандидат.
+
+    Returns:
+        Ключ по URL, если он есть, иначе ключ по названию.
+    """
+    url = str(item.get("url") or "").strip().lower()
+    if url:
+        return f"url:{url}"
+    return f"title:{str(item.get('title') or '').strip().lower()}"
+
+
+def _fallback_llm_result(error: str, candidates: list[dict[str, Any]]) -> dict[str, str]:
+    """Строит безопасный LLM-результат, когда провайдер временно недоступен.
+
+    Args:
+        error: Текст ошибки LLM-провайдера.
+        candidates: Уже найденные RSS-кандидаты.
+
+    Returns:
+        Нормализованный LLM-результат с объяснением fallback.
+    """
+    titles = [
+        str(candidate.get("title") or "").strip()
+        for candidate in candidates[:3]
+        if isinstance(candidate, dict) and str(candidate.get("title") or "").strip()
+    ]
+    context = "\n".join(f"- {title}" for title in titles)
+    details = f"\n\nRSS-кандидаты для ручной проверки:\n{context}" if context else ""
+    return {
+        "provider": llm_settings.normalized_provider,
+        "model": llm_settings.normalized_model,
+        "response": (
+            "LLM сейчас не смогла собрать финальную рекомендацию: "
+            f"{error}. RSS уже проверен, поэтому можно посмотреть найденные кандидаты ниже."
+            f"{details}"
+        ),
+    }
 
 
 def _query_variants(query: str) -> list[str]:
@@ -158,8 +218,8 @@ def _query_variants(query: str) -> list[str]:
     """
     variants = [query]
     normalized = query.lower()
-    if RECOMMENDATION_KEYWORD_MARKER in normalized or "vibe" in normalized:
-        variants.extend(RECOMMENDATION_KEYWORD_VARIANTS)
+    if tool_settings.normalized_keyword_marker in normalized or "vibe" in normalized:
+        variants.extend(tool_settings.normalized_keyword_variants)
     return variants
 
 
@@ -181,6 +241,70 @@ def _prefer_exact_category(candidates: list[dict[str, Any]], category: Category,
     mixed = [item for item in candidates if item.get("category") == "mixed"]
     other = [item for item in candidates if item.get("category") not in {category, "mixed"}]
     return [*exact, *mixed, *other][:limit]
+
+
+def _rank_candidates_by_learned_preferences(
+    candidates: list[dict[str, Any]],
+    profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Ранжирует кандидатов по learned_preferences пользователя.
+
+    Args:
+        candidates: RSS-кандидаты для LLM.
+        profile: Профиль пользователя с накопленными feedback-весами.
+
+    Returns:
+        Кандидаты, отсортированные по персональному score.
+    """
+    learned = profile.get("learned_preferences", {})
+    if not isinstance(learned, dict):
+        return candidates
+
+    scored_candidates = [
+        _candidate_with_preference_score(candidate, learned)
+        for candidate in candidates
+    ]
+    return sorted(scored_candidates, key=lambda item: int(item.get("preference_score", 0)), reverse=True)
+
+
+def _candidate_with_preference_score(candidate: dict[str, Any], learned: dict[str, Any]) -> dict[str, Any]:
+    """Добавляет кандидату score и причины совпадения с learned_preferences.
+
+    Args:
+        candidate: RSS-кандидат.
+        learned: Накопленные веса предпочтений.
+
+    Returns:
+        Копию кандидата с `preference_score` и `preference_reasons`.
+    """
+    score = 0
+    reasons: list[str] = []
+    score += _score_field(learned, "categories", str(candidate.get("category") or ""), reasons)
+    score += _score_field(learned, "sources", str(candidate.get("source") or ""), reasons)
+
+    tags = candidate.get("tags", [])
+    if isinstance(tags, list):
+        for tag in tags:
+            score += _score_field(learned, "tags", str(tag).strip().lower(), reasons)
+
+    result = dict(candidate)
+    result["preference_score"] = score
+    result["preference_reasons"] = reasons
+    return result
+
+
+def _score_field(learned: dict[str, Any], section: str, key: str, reasons: list[str]) -> int:
+    """Возвращает вес learned preference для одного поля."""
+    if not key:
+        return 0
+    values = learned.get(section, {})
+    if not isinstance(values, dict):
+        return 0
+    raw_score = values.get(key)
+    if not isinstance(raw_score, int) or raw_score == 0:
+        return 0
+    reasons.append(f"{section}:{key}:{raw_score:+d}")
+    return raw_score
 
 
 def _recommend_media_prompt(

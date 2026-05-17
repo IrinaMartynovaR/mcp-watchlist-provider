@@ -25,6 +25,10 @@ Thumbs.db
 # Local environment
 .env
 
+# Runtime state
+data/*.json
+!data/sources.json
+
 # Build artifacts
 build/
 dist/

@@ -4,10 +4,10 @@ from typing import Any
 
 from langfuse import observe
 
-from app.settings import CACHE_FILE, PROFILE_FILE, SOURCES_FILE, WATCHLIST_FILE
+from app.settings import backend_settings
 from domain.models import Category, FeedItem, Source, WatchlistItem, parse_media_type
 from domain.storage.json_store import read_json, write_json
-from mcp_tools.settings import CACHE_SEARCH_DAYS, CACHE_SEARCH_LIMIT, FEED_REFRESH_LIMIT, SOURCE_VALIDATION_LIMIT
+from mcp_tools.settings import tool_settings
 from rss_feeds.client import RSSFetchResult, fetch_rss_source_result
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ def _load_sources() -> list[Source]:
     Returns:
         Валидированный список источников.
     """
-    data: dict[str, Any] = read_json(SOURCES_FILE, {"feeds": []})
+    data: dict[str, Any] = read_json(backend_settings.sources_file, {"feeds": []})
     sources = [Source.model_validate(item) for item in data.get("feeds", [])]
     logger.debug("RSS sources loaded", extra={"source_count": len(sources)})
     return sources
@@ -124,7 +124,7 @@ def _collect_rss_sources(category: Category, limit_per_source: int) -> tuple[lis
 @observe(name="get_profile", as_type="tool")
 def get_profile_data() -> dict[str, Any]:
     """Возвращает профиль пользовательских предпочтений."""
-    return read_json(PROFILE_FILE, {})
+    return read_json(backend_settings.profile_file, {})
 
 
 def update_profile_data(likes: list[str] | None = None, dislikes: list[str] | None = None) -> dict[str, Any]:
@@ -137,12 +137,12 @@ def update_profile_data(likes: list[str] | None = None, dislikes: list[str] | No
     Returns:
         Обновлённый профиль.
     """
-    profile: dict[str, Any] = read_json(PROFILE_FILE, {})
+    profile: dict[str, Any] = read_json(backend_settings.profile_file, {})
     if likes:
         profile["likes"] = sorted(set(profile.get("likes", []) + likes))
     if dislikes:
         profile["dislikes"] = sorted(set(profile.get("dislikes", []) + dislikes))
-    write_json(PROFILE_FILE, profile)
+    write_json(backend_settings.profile_file, profile)
     logger.info(
         "Profile updated",
         extra={"likes_added": len(likes or []), "dislikes_added": len(dislikes or [])},
@@ -157,7 +157,7 @@ def list_sources_data() -> list[dict[str, Any]]:
 
 def validate_sources_data(
     category: Category = "all",
-    limit_per_source: int = SOURCE_VALIDATION_LIMIT,
+    limit_per_source: int = tool_settings.source_validation_limit,
 ) -> dict[str, Any]:
     """Проверяет доступность RSS-источников.
 
@@ -186,7 +186,7 @@ def validate_sources_data(
 @observe(name="refresh_feeds", as_type="tool")
 def refresh_feeds_data(
     category: Category = "all",
-    limit_per_source: int = FEED_REFRESH_LIMIT,
+    limit_per_source: int = tool_settings.feed_refresh_limit,
 ) -> dict[str, Any]:
     """Обновляет RSS-кеш и сохраняет его на диск.
 
@@ -207,7 +207,7 @@ def refresh_feeds_data(
         "category": category,
         "sources": source_results,
     }
-    write_json(CACHE_FILE, payload)
+    write_json(backend_settings.cache_file, payload)
 
     errors = [result for result in source_results if not result["ok"]]
     logger.info(
@@ -226,14 +226,14 @@ def refresh_feeds_data(
         "items": payload["items"],
         "sources": source_results,
         "errors": errors,
-        "cache_file": str(CACHE_FILE),
+        "cache_file": str(backend_settings.cache_file),
     }
 
 
 @observe(name="fetch_latest_items", as_type="tool")
 def fetch_latest_items_data(
     category: Category = "all",
-    limit_per_source: int = FEED_REFRESH_LIMIT,
+    limit_per_source: int = tool_settings.feed_refresh_limit,
 ) -> list[dict[str, Any]]:
     """Возвращает свежие RSS-элементы после обновления кеша.
 
@@ -255,8 +255,8 @@ def fetch_latest_items_data(
 def search_cached_items_data(
     query: str,
     category: Category = "all",
-    days: int = CACHE_SEARCH_DAYS,
-    limit: int = CACHE_SEARCH_LIMIT,
+    days: int = tool_settings.cache_search_days,
+    limit: int = tool_settings.cache_search_limit,
 ) -> list[dict[str, Any]]:
     """Ищет элементы в локальном RSS-кеше.
 
@@ -269,7 +269,7 @@ def search_cached_items_data(
     Returns:
         Найденные RSS-элементы.
     """
-    cached: dict[str, Any] = read_json(CACHE_FILE, {"items": []})
+    cached: dict[str, Any] = read_json(backend_settings.cache_file, {"items": []})
     cutoff = datetime.now(UTC) - timedelta(days=days)
     results: list[FeedItem] = []
 
@@ -309,10 +309,10 @@ def add_to_watchlist_data(
     Returns:
         Сериализованный watchlist item.
     """
-    data: dict[str, Any] = read_json(WATCHLIST_FILE, {"items": []})
+    data: dict[str, Any] = read_json(backend_settings.watchlist_file, {"items": []})
     item = WatchlistItem(title=title, type=parse_media_type(media_type), url=url, reason=reason, source=source)
     data["items"].append(item.model_dump(mode="json"))
-    write_json(WATCHLIST_FILE, data)
+    write_json(backend_settings.watchlist_file, data)
     logger.info("Watchlist item added", extra={"title": title, "media_type": item.type})
     return item.model_dump(mode="json")
 
@@ -328,7 +328,7 @@ def list_watchlist_data(media_type: str = "all", status: str = "planned") -> lis
     Returns:
         Отфильтрованные watchlist items.
     """
-    data: dict[str, Any] = read_json(WATCHLIST_FILE, {"items": []})
+    data: dict[str, Any] = read_json(backend_settings.watchlist_file, {"items": []})
     items = data.get("items", [])
     if media_type != "all":
         items = [item for item in items if item.get("type") == media_type]
@@ -351,12 +351,12 @@ def rate_watchlist_item_data(title: str, rating: int, comment: str = "") -> dict
     Raises:
         ValueError: Если элемент с таким названием не найден.
     """
-    data: dict[str, Any] = read_json(WATCHLIST_FILE, {"items": []})
+    data: dict[str, Any] = read_json(backend_settings.watchlist_file, {"items": []})
     for item in data.get("items", []):
         if item.get("title", "").lower() == title.lower():
             item["rating"] = rating
             item["comment"] = comment
-            write_json(WATCHLIST_FILE, data)
+            write_json(backend_settings.watchlist_file, data)
             logger.info("Watchlist item rated", extra={"title": item.get("title", title), "rating": rating})
             return dict(item)
     logger.warning("Watchlist item not found for rating", extra={"title": title})
