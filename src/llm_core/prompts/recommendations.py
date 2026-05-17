@@ -32,6 +32,8 @@ def build_feed_recommendation_prompt(
         "You are creating a practical WatchQuest recommendation. "
         "Return 1-5 recommendations in the user's language. "
         "Use only the provided candidates. Do not invent titles that are not present in candidates. "
+        "Treat profile.learned_preferences as weighted user taste signals: positive values mean prefer, "
+        "negative values mean avoid or down-rank. "
         "If the user asks for games, recommend games mentioned in the candidates, not generic industry articles. "
         "If there are fewer than 3 solid matches, recommend fewer and say the feed context is limited. "
         "For each recommendation include title, type/category, why it fits, and a concrete next action.\n\n"

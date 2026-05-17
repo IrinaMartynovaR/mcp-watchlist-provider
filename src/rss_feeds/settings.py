@@ -36,7 +36,3 @@ def get_rss_settings() -> RSSSettings:
 
 
 rss_settings = get_rss_settings()
-
-RSS_FETCH_TIMEOUT_SECONDS = rss_settings.rss_fetch_timeout_seconds
-RSS_FETCH_ITEM_LIMIT = rss_settings.rss_fetch_item_limit
-RSS_USER_AGENT = rss_settings.normalized_rss_user_agent

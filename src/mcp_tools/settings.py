@@ -3,6 +3,8 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from domain.models import FeedbackAction
+
 
 class ToolSettings(BaseSettings):
     """Хранит лимиты и эвристики для MCP-инструментов."""
@@ -28,6 +30,10 @@ class ToolSettings(BaseSettings):
         default="уютная,атмосферная,cozy,vibe",
         alias="TOOLS_RECOMMENDATION_KEYWORD_VARIANTS",
     )
+    feedback_like_weight: int = Field(default=1, alias="TOOLS_FEEDBACK_LIKE_WEIGHT")
+    feedback_dislike_weight: int = Field(default=-1, alias="TOOLS_FEEDBACK_DISLIKE_WEIGHT")
+    feedback_watchlist_weight: int = Field(default=2, alias="TOOLS_FEEDBACK_WATCHLIST_WEIGHT")
+    feedback_block_similar_weight: int = Field(default=-3, alias="TOOLS_FEEDBACK_BLOCK_SIMILAR_WEIGHT")
 
     @property
     def normalized_keyword_marker(self) -> str:
@@ -43,8 +49,22 @@ class ToolSettings(BaseSettings):
         """
         return [item.strip() for item in self.recommendation_keyword_variants.split(",") if item.strip()]
 
+    @property
+    def feedback_weights(self) -> dict[FeedbackAction, int]:
+        """Возвращает веса пользовательского feedback для обучения профиля.
 
-@lru_cache
+        Returns:
+            Словарь весов по поддерживаемым feedback-действиям.
+        """
+        return {
+            "like": self.feedback_like_weight,
+            "dislike": self.feedback_dislike_weight,
+            "watchlist": self.feedback_watchlist_weight,
+            "block_similar": self.feedback_block_similar_weight,
+        }
+
+
+@lru_cache(1)
 def get_tool_settings() -> ToolSettings:
     """Загружает и кеширует настройки MCP-инструментов.
 
@@ -55,13 +75,3 @@ def get_tool_settings() -> ToolSettings:
 
 
 tool_settings = get_tool_settings()
-
-SOURCE_VALIDATION_LIMIT = tool_settings.source_validation_limit
-FEED_REFRESH_LIMIT = tool_settings.feed_refresh_limit
-CACHE_SEARCH_DAYS = tool_settings.cache_search_days
-CACHE_SEARCH_LIMIT = tool_settings.cache_search_limit
-RECOMMENDATION_LIMIT = tool_settings.recommendation_limit
-RECOMMENDATION_SOURCE_LIMIT = tool_settings.recommendation_source_limit
-RECOMMENDATION_FALLBACK_CANDIDATE_MULTIPLIER = tool_settings.recommendation_fallback_candidate_multiplier
-RECOMMENDATION_KEYWORD_MARKER = tool_settings.normalized_keyword_marker
-RECOMMENDATION_KEYWORD_VARIANTS = tool_settings.normalized_keyword_variants

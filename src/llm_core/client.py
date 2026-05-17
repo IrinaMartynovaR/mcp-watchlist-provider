@@ -2,14 +2,7 @@ from typing import Protocol
 
 from llm_core.providers.zai_glm import ZAIGLMClient, ZAIGLMSettings
 from llm_core.schemas import ChatMessage
-from llm_core.settings import (
-    LLM_API_KEY,
-    LLM_BASE_URL,
-    LLM_MODEL,
-    LLM_PROVIDER,
-    LLM_TEMPERATURE,
-    LLM_TIMEOUT_SECONDS,
-)
+from llm_core.settings import llm_settings
 
 
 class LLMClient(Protocol):
@@ -37,14 +30,14 @@ def create_llm_client() -> LLMClient:
     Raises:
         ValueError: Если выбран неподдерживаемый LLM-провайдер.
     """
-    if LLM_PROVIDER == "zai_glm":
+    if llm_settings.normalized_provider == "zai_glm":
         return ZAIGLMClient(
             settings=ZAIGLMSettings(
-                api_key=LLM_API_KEY,
-                base_url=LLM_BASE_URL,
-                model=LLM_MODEL,
-                timeout_seconds=LLM_TIMEOUT_SECONDS,
-                temperature=LLM_TEMPERATURE,
+                api_key=llm_settings.normalized_api_key,
+                base_url=llm_settings.normalized_base_url,
+                model=llm_settings.normalized_model,
+                timeout_seconds=llm_settings.timeout_seconds,
+                temperature=llm_settings.temperature,
             )
         )
-    raise ValueError(f"Unsupported LLM provider: {LLM_PROVIDER}")
+    raise ValueError(f"Unsupported LLM provider: {llm_settings.normalized_provider}")

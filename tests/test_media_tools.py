@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app.settings import BackendSettings
 from domain.models import FeedItem, Source, parse_category, parse_media_type
 from mcp_tools import media
 from rss_feeds.client import RSSFetchResult
@@ -21,7 +22,7 @@ def test_parse_media_type_rejects_unknown_value() -> None:
 
 def test_watchlist_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     watchlist_file = tmp_path / "watchlist.json"
-    monkeypatch.setattr(media, "WATCHLIST_FILE", watchlist_file)
+    monkeypatch.setattr(media, "backend_settings", BackendSettings(WATCHQUEST_DATA_DIR=tmp_path))
 
     created = media.add_to_watchlist_data(
         title="Outer Wilds",
@@ -84,7 +85,6 @@ def test_refresh_feeds_keeps_working_when_one_source_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cache_file = tmp_path / "feed_cache.json"
     good_source = Source.model_validate(
         {"name": "Good", "category": "mixed", "language": "en", "url": "https://example.com/good.xml"}
     )
@@ -108,7 +108,7 @@ def test_refresh_feeds_keeps_working_when_one_source_fails(
             return RSSFetchResult(source=source, url=str(source.url), ok=True, items=[item], status_code=200)
         return RSSFetchResult(source=source, url=str(source.url), ok=False, items=[], error="broken feed")
 
-    monkeypatch.setattr(media, "CACHE_FILE", cache_file)
+    monkeypatch.setattr(media, "backend_settings", BackendSettings(WATCHQUEST_DATA_DIR=tmp_path))
     monkeypatch.setattr(media, "_load_sources", fake_sources)
     monkeypatch.setattr(media, "fetch_rss_source_result", fake_fetch)
 
@@ -119,7 +119,7 @@ def test_refresh_feeds_keeps_working_when_one_source_fails(
     assert result["items"][0]["title"] == "Useful RSS item"
     assert result["errors"][0]["name"] == "Bad"
 
-    persisted = json.loads(cache_file.read_text(encoding="utf-8"))
+    persisted = json.loads((tmp_path / "cache.json").read_text(encoding="utf-8"))
     assert persisted["items"][0]["url"] == "https://example.com/useful"
     assert persisted["sources"][1]["error"] == "broken feed"
 

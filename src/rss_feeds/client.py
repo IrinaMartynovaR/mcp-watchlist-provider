@@ -8,7 +8,7 @@ import feedparser
 import httpx
 
 from domain.models import FeedItem, Source
-from rss_feeds.settings import RSS_FETCH_ITEM_LIMIT, RSS_FETCH_TIMEOUT_SECONDS, RSS_USER_AGENT
+from rss_feeds.settings import rss_settings
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +102,8 @@ def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
 
 def fetch_rss_source_result(
     source: Source,
-    limit: int = RSS_FETCH_ITEM_LIMIT,
-    timeout: float = RSS_FETCH_TIMEOUT_SECONDS,
+    limit: int = rss_settings.rss_fetch_item_limit,
+    timeout: float = rss_settings.rss_fetch_timeout_seconds,
 ) -> RSSFetchResult:
     """Загружает RSS-источник и возвращает диагностику результата.
 
@@ -124,7 +124,7 @@ def fetch_rss_source_result(
     try:
         with httpx.Client(
             follow_redirects=True,
-            headers={"User-Agent": RSS_USER_AGENT},
+            headers={"User-Agent": rss_settings.normalized_rss_user_agent},
             timeout=timeout,
         ) as client:
             response = client.get(url)
