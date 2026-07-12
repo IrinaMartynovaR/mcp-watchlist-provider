@@ -9,12 +9,20 @@ from llm_core.settings import llm_settings
 
 
 @observe(name="ask_llm", as_type="generation")
-def ask_llm_data(prompt: str, system: str | None = None) -> dict[str, Any]:
+def ask_llm_data(
+    prompt: str,
+    system: str | None = None,
+    model: str | None = None,
+    max_tokens: int = 1500,
+) -> dict[str, Any]:
     """Отправляет prompt в LLM и возвращает нормализованный ответ.
 
     Args:
         prompt: Пользовательский prompt для модели.
         system: Необязательный системный prompt вместо дефолтного.
+        model: Необязательная модель вместо дефолтной из настроек —
+            для служебных задач (например, классификации) на дешёвой модели.
+        max_tokens: Максимальная длина ответа в токенах.
 
     Returns:
         Словарь с провайдером, моделью и текстом ответа.
@@ -24,10 +32,10 @@ def ask_llm_data(prompt: str, system: str | None = None) -> dict[str, Any]:
         {"role": "system", "content": system or SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
-    response = client.chat(messages)
+    response = client.chat(messages, max_tokens=max_tokens, model=model)
     return {
         "provider": llm_settings.normalized_provider,
-        "model": llm_settings.normalized_model,
+        "model": model or llm_settings.normalized_model,
         "response": response,
     }
 

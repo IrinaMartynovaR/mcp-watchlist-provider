@@ -119,6 +119,48 @@
       "category": "movies_series",
       "language": "en",
       "url": "https://screenrant.com/feed/"
+    },
+    {
+      "name": "StopGame - обзоры",
+      "category": "games",
+      "language": "ru",
+      "url": "https://rss.stopgame.ru/rss_review.xml"
+    },
+    {
+      "name": "Eurogamer Reviews",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.eurogamer.net/feed/reviews"
+    },
+    {
+      "name": "Rock Paper Shotgun Reviews",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.rockpapershotgun.com/feed/reviews"
+    },
+    {
+      "name": "GameSpot Reviews",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.gamespot.com/feeds/reviews/"
+    },
+    {
+      "name": "Destructoid Reviews",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.destructoid.com/category/reviews/feed/"
+    },
+    {
+      "name": "Roger Ebert Reviews",
+      "category": "movies",
+      "language": "en",
+      "url": "https://www.rogerebert.com/reviews/feed"
+    },
+    {
+      "name": "Variety Film Reviews",
+      "category": "movies",
+      "language": "en",
+      "url": "https://variety.com/v/film/reviews/feed/"
     }
   ]
 }

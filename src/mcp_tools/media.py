@@ -5,8 +5,9 @@ from typing import Any
 from langfuse import observe
 
 from app.settings import backend_settings
-from domain.models import Category, FeedItem, Source, WatchlistItem, parse_media_type
+from domain.models import Category, FeedItem, Source, WatchlistItem, category_matches, parse_media_type
 from domain.storage.json_store import read_json, write_json
+from mcp_tools.classification import classify_feed_items
 from mcp_tools.settings import tool_settings
 from rss_feeds.client import RSSFetchResult, fetch_rss_source_result
 from rss_feeds.settings import rss_settings
@@ -72,7 +73,7 @@ def _dedupe(items: list[FeedItem]) -> list[FeedItem]:
 
 def _matches_category(item: FeedItem, category: Category) -> bool:
     """Проверяет соответствие элемента заданной категории."""
-    return category == "all" or item.category in {category, "mixed"}
+    return category_matches(item.category, category)
 
 
 def _matches_query(item: FeedItem, query: str) -> bool:
@@ -84,7 +85,7 @@ def _matches_query(item: FeedItem, query: str) -> bool:
 
 def _source_matches_category(source: Source, category: Category) -> bool:
     """Проверяет соответствие RSS-источника заданной категории."""
-    return category == "all" or source.category in {category, "mixed"}
+    return category_matches(source.category, category)
 
 
 def _rss_result_as_dict(result: RSSFetchResult) -> dict[str, Any]:
@@ -249,6 +250,7 @@ def refresh_feeds_data(
         items.extend(_preserved_cache_items(fetched_sources))
     items = _dedupe(items)
     items.sort(key=lambda item: item.published_at, reverse=True)
+    items = classify_feed_items(items)
 
     payload = {
         "items": _as_dicts(items),

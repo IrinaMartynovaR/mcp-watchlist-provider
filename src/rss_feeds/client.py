@@ -1,4 +1,6 @@
+import html
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -8,9 +10,13 @@ import feedparser
 import httpx
 
 from domain.models import FeedItem, Source
+from rss_feeds.classify import classify_item_kind
 from rss_feeds.settings import rss_settings
 
 logger = logging.getLogger(__name__)
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_SUMMARY_MAX_CHARS = 500
 
 
 @dataclass(frozen=True)
@@ -46,6 +52,24 @@ def _parse_date(entry: Any) -> datetime:
         return datetime.now(UTC)
 
 
+def _clean_summary(raw: str) -> str:
+    """Очищает RSS-аннотацию от HTML для кеша, эмбеддингов и prompt.
+
+    Сырые RSS-summary часто содержат вёрстку (картинки, ссылки, трекеры) —
+    она замусоривает embedding-текст и раздувает LLM-prompt.
+
+    Args:
+        raw: Сырая аннотация RSS-entry.
+
+    Returns:
+        Плоский текст без тегов, с нормализованными пробелами,
+        обрезанный до разумной длины.
+    """
+    text = html.unescape(_HTML_TAG_RE.sub(" ", raw))
+    text = " ".join(text.split())
+    return text[:_SUMMARY_MAX_CHARS]
+
+
 def _entry_tags(entry: Any) -> list[str]:
     """Извлекает непустые теги RSS-entry.
 
@@ -79,11 +103,12 @@ def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
     for entry in parsed.entries[:limit]:
         title = getattr(entry, "title", "").strip()
         link = getattr(entry, "link", "").strip()
-        summary = getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
+        summary = _clean_summary(getattr(entry, "summary", "") or getattr(entry, "description", "") or "")
 
         if not title or not link:
             continue
 
+        tags = _entry_tags(entry)
         items.append(
             FeedItem(
                 title=title,
@@ -91,9 +116,10 @@ def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
                 source=source.name,
                 source_language=source.language,
                 category=source.category,
+                kind=classify_item_kind(title, url=link, summary=summary, tags=tags),
                 summary=summary,
                 published_at=_parse_date(entry),
-                tags=_entry_tags(entry),
+                tags=tags,
             )
         )
 

@@ -73,6 +73,27 @@ def test_chat_wraps_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
         _client().chat(messages)
 
 
+def test_chat_model_override_replaces_default_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def capture(self: httpx.Client, url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx.Response:
+        payloads.append(json or {})
+        return httpx.Response(
+            status_code=200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.Client, "post", capture)
+    messages: list[ChatMessage] = [{"role": "user", "content": "hello"}]
+
+    _client().chat(messages, model="google/gemma-4-26b-a4b-it")
+    _client().chat(messages)
+
+    assert payloads[0]["model"] == "google/gemma-4-26b-a4b-it"
+    assert payloads[1]["model"] == "openai/gpt-4o-mini"
+
+
 def test_embed_fast_fails_without_api_key(poison_network: list[str]) -> None:
     with pytest.raises(RuntimeError, match="LLM_API_KEY"):
         _client(api_key="").embed(["hello"])

@@ -100,6 +100,11 @@ class BackendSettings(BaseSettings):
         return self.data_dir / "embeddings_cache.json"
 
     @property
+    def classification_cache_file(self) -> Path:
+        """Возвращает путь к JSON-файлу кеша LLM-классификации RSS-записей."""
+        return self.data_dir / "classification_cache.json"
+
+    @property
     def mem0_vector_store_dir(self) -> Path:
         """Возвращает директорию локального Chroma vector store для Mem0."""
         return self.data_dir / "mem0_chroma"

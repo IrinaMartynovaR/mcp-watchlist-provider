@@ -8,12 +8,13 @@ from llm_core.settings import llm_settings
 class LLMClient(Protocol):
     """Задаёт общий контракт для текстового LLM-клиента."""
 
-    def chat(self, messages: list[ChatMessage], max_tokens: int = 1500) -> str:
+    def chat(self, messages: list[ChatMessage], max_tokens: int = 1500, model: str | None = None) -> str:
         """Отправляет диалог в LLM и возвращает итоговый текст.
 
         Args:
             messages: Сообщения диалога в формате выбранного провайдера.
             max_tokens: Максимальное число токенов в ответе.
+            model: Необязательная модель вместо дефолтной из настроек.
 
         Returns:
             Текст финального ответа модели.

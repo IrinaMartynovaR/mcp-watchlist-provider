@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, HttpUrl
 Category = Literal["games", "movies", "series", "movies_series", "mixed", "all"]
 MediaType = Literal["game", "movie", "series", "article", "unknown"]
 FeedbackAction = Literal["like", "dislike", "watchlist", "block_similar"]
+ItemKind = Literal["review", "release", "news", "noise"]
 
 CATEGORIES: tuple[Category, ...] = ("games", "movies", "series", "movies_series", "mixed", "all")
 MEDIA_TYPES: tuple[MediaType, ...] = ("game", "movie", "series", "article", "unknown")
@@ -27,6 +28,29 @@ def parse_category(value: str) -> Category:
     if value in CATEGORIES:
         return value
     raise ValueError(f"Unsupported category: {value}")
+
+
+def category_matches(value: str, requested: Category) -> bool:
+    """Проверяет, попадает ли категория записи в запрошенную категорию.
+
+    Категория `movies_series` — общая для кино и сериалов: такие записи
+    подходят под запросы `movies` и `series` (и наоборот), иначе источники
+    вроде Variety были бы невидимы для узких запросов.
+
+    Args:
+        value: Категория записи или источника (строка из данных).
+        requested: Запрошенная пользователем категория.
+
+    Returns:
+        True, если запись подходит под запрошенную категорию.
+    """
+    if requested == "all" or value in {requested, "mixed"}:
+        return True
+    if value == "movies_series":
+        return requested in {"movies", "series"}
+    if requested == "movies_series":
+        return value in {"movies", "series"}
+    return False
 
 
 def parse_media_type(value: str) -> MediaType:
@@ -78,6 +102,8 @@ class FeedItem(BaseModel):
     source: str
     source_language: str = "unknown"
     category: Category = "mixed"
+    kind: ItemKind = "news"
+    title_entity: str = ""
     summary: str = ""
     published_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     tags: list[str] = Field(default_factory=list)

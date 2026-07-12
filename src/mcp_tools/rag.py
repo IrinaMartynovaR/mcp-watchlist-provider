@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 from langchain_core.vectorstores import InMemoryVectorStore
 from langfuse import observe
 
-from domain.models import Category
+from domain.models import Category, category_matches
 from llm_core.embeddings import create_embeddings
 from llm_core.prompts.recommendations import HYDE_SYSTEM_PROMPT, build_hyde_prompt
 from mcp_tools.llm import ask_llm_data
@@ -16,6 +16,9 @@ from mcp_tools.settings import tool_settings
 logger = logging.getLogger(__name__)
 
 _EXACT_CATEGORY_BONUS = 0.05
+# Обзоры конкретных тайтлов — лучший материал для рекомендации, шум
+# (скидки/промо) не должен доходить до LLM даже при высокой similarity.
+_KIND_SCORE_ADJUSTMENTS = {"review": 0.05, "noise": -0.2}
 
 
 @observe(name="semantic_search", as_type="tool")
@@ -123,7 +126,10 @@ def _score_documents(
     items_by_key: dict[str, dict[str, Any]],
     category: Category,
 ) -> dict[str, tuple[dict[str, Any], float]]:
-    """Сопоставляет scored-документы с кандидатами и применяет category-бонус.
+    """Сопоставляет scored-документы с кандидатами и применяет бонусы.
+
+    Помимо exact-category бонуса к similarity-score добавляется поправка
+    за тип записи (`kind`): бонус обзорам, штраф шуму (скидки/промо).
 
     Args:
         scored_documents: Пары (документ, score) из similarity search.
@@ -131,7 +137,7 @@ def _score_documents(
         category: Категория поиска для exact-match бонуса.
 
     Returns:
-        Словарь candidate_key -> (кандидат, score с учётом бонуса).
+        Словарь candidate_key -> (кандидат, score с учётом бонусов).
     """
     scored_by_key: dict[str, tuple[dict[str, Any], float]] = {}
     for document, score in scored_documents:
@@ -139,8 +145,11 @@ def _score_documents(
         matched = items_by_key.get(key)
         if matched is None:
             continue
-        exact_match = category != "all" and matched.get("category") == category
-        scored_by_key[key] = (matched, score + (_EXACT_CATEGORY_BONUS if exact_match else 0.0))
+        adjusted = score + _KIND_SCORE_ADJUSTMENTS.get(str(matched.get("kind") or ""), 0.0)
+        item_category = str(matched.get("category") or "")
+        if category != "all" and item_category != "mixed" and category_matches(item_category, category):
+            adjusted += _EXACT_CATEGORY_BONUS
+        scored_by_key[key] = (matched, adjusted)
     return scored_by_key
 
 
@@ -198,9 +207,14 @@ def candidate_text(item: dict[str, Any]) -> str:
         item: RSS-кандидат.
 
     Returns:
-        Название, аннотацию и tags, объединённые в один текст.
+        Название тайтла, заголовок, аннотацию и tags, объединённые в один текст.
     """
     tags = item.get("tags", [])
     tags_text = " ".join(str(tag) for tag in tags) if isinstance(tags, list) else ""
-    parts = [str(item.get("title") or ""), str(item.get("summary") or ""), tags_text]
+    parts = [
+        str(item.get("title_entity") or ""),
+        str(item.get("title") or ""),
+        str(item.get("summary") or ""),
+        tags_text,
+    ]
     return " ".join(part.strip() for part in parts if part.strip())

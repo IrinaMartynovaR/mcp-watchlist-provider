@@ -284,6 +284,18 @@ def test_recommend_media_blends_memory_score_into_preference_score(monkeypatch: 
     assert result["tool_usage"]["semantic_memory_score"] is True
 
 
+def test_candidate_kind_adjusts_preference_score() -> None:
+    review = recommendation._candidate_with_preference_score({"title": "Rev", "kind": "review"}, learned={})
+    news = recommendation._candidate_with_preference_score({"title": "News", "kind": "news"}, learned={})
+    noise = recommendation._candidate_with_preference_score({"title": "Deals", "kind": "noise"}, learned={})
+
+    assert review["preference_score"] == 1
+    assert "kind:review:+1" in review["preference_reasons"]
+    assert news["preference_score"] == 0
+    assert noise["preference_score"] == -2
+    assert "kind:noise:-2" in noise["preference_reasons"]
+
+
 def test_interleave_by_source_round_robins_candidates() -> None:
     candidates = [
         {"title": "A1", "source": "A"},

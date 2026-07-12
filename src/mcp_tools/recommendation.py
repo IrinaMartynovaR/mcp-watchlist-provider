@@ -7,7 +7,7 @@ from langfuse import observe
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from domain.models import Category
+from domain.models import Category, category_matches
 from llm_core.prompts.recommendations import build_feed_recommendation_prompt
 from llm_core.settings import llm_settings
 from mcp_tools.feedback import save_recommendation_result
@@ -24,6 +24,10 @@ from mcp_tools.rag import semantic_search_data
 from mcp_tools.settings import tool_settings
 
 logger = logging.getLogger(__name__)
+
+# Веса типа записи в одном масштабе с learned_preferences/feedback_weights:
+# обзор конкретного тайтла — сильный кандидат, шум (скидки/промо) — вниз.
+_KIND_PREFERENCE_WEIGHTS = {"review": 1, "noise": -2}
 
 
 class RecommendationState(TypedDict, total=False):
@@ -439,9 +443,15 @@ def _prefer_exact_category(candidates: list[dict[str, Any]], category: Category,
     if category == "all":
         return _interleave_by_source(candidates)[:limit]
 
-    exact = _interleave_by_source([item for item in candidates if item.get("category") == category])
-    mixed = _interleave_by_source([item for item in candidates if item.get("category") == "mixed"])
-    other = _interleave_by_source([item for item in candidates if item.get("category") not in {category, "mixed"}])
+    def bucket(item: dict[str, Any]) -> str:
+        item_category = str(item.get("category") or "")
+        if item_category != "mixed" and category_matches(item_category, category):
+            return "exact"
+        return "mixed" if item_category == "mixed" else "other"
+
+    exact = _interleave_by_source([item for item in candidates if bucket(item) == "exact"])
+    mixed = _interleave_by_source([item for item in candidates if bucket(item) == "mixed"])
+    other = _interleave_by_source([item for item in candidates if bucket(item) == "other"])
     return [*exact, *mixed, *other][:limit]
 
 
@@ -524,6 +534,12 @@ def _candidate_with_preference_score(
     reasons: list[str] = []
     score += _score_field(learned, "categories", str(candidate.get("category") or ""), reasons)
     score += _score_field(learned, "sources", str(candidate.get("source") or ""), reasons)
+
+    kind = str(candidate.get("kind") or "")
+    kind_score = _KIND_PREFERENCE_WEIGHTS.get(kind, 0)
+    if kind_score:
+        score += kind_score
+        reasons.append(f"kind:{kind}:{kind_score:+d}")
 
     tags = candidate.get("tags", [])
     if isinstance(tags, list):

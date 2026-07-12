@@ -48,12 +48,14 @@ class OpenRouterClient:
         """
         self.settings = settings
 
-    def chat(self, messages: list[ChatMessage], max_tokens: int = 1500) -> str:
+    def chat(self, messages: list[ChatMessage], max_tokens: int = 1500, model: str | None = None) -> str:
         """Отправляет chat-completions запрос в OpenRouter.
 
         Args:
             messages: История сообщений для модели.
             max_tokens: Максимальная длина ответа.
+            model: Необязательная модель вместо дефолтной из настроек —
+                для служебных задач на более дешёвой модели.
 
         Returns:
             Финальный текст ответа модели.
@@ -66,8 +68,9 @@ class OpenRouterClient:
         if not self.settings.api_key:
             raise RuntimeError("LLM_API_KEY is not configured")
 
+        chat_model = model or self.settings.model
         payload: OpenRouterChatRequest = {
-            "model": self.settings.model,
+            "model": chat_model,
             "messages": messages,
             "temperature": self.settings.temperature,
             "stream": False,
@@ -75,7 +78,7 @@ class OpenRouterClient:
         }
         logger.info(
             "LLM chat request started",
-            extra={"provider": "openrouter", "model": self.settings.model, "message_count": len(messages)},
+            extra={"provider": "openrouter", "model": chat_model, "message_count": len(messages)},
         )
 
         with httpx.Client(timeout=self.settings.timeout_seconds, headers=self._headers()) as client:
@@ -84,12 +87,12 @@ class OpenRouterClient:
                 f"{self.settings.base_url}/chat/completions",
                 payload,
                 provider="openrouter",
-                model=self.settings.model,
+                model=chat_model,
                 action="chat",
             )
 
         content = _extract_content(data)
-        logger.info("LLM chat request completed", extra={"model": self.settings.model, "response_chars": len(content)})
+        logger.info("LLM chat request completed", extra={"model": chat_model, "response_chars": len(content)})
         return content
 
     def embed(self, texts: list[str]) -> list[list[float]]:

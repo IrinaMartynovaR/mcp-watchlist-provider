@@ -1,6 +1,7 @@
 from typing import Any
 
 import pytest
+from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 
 from mcp_tools import rag
@@ -179,6 +180,23 @@ def test_semantic_search_falls_back_when_hyde_generation_fails(
 
     assert with_hyde_failure == without_hyde
     assert [item["title"] for item in with_hyde_failure] == ["Space Odyssey", "Farm Story"]
+
+
+def test_score_documents_boosts_reviews_and_penalizes_noise() -> None:
+    items_by_key = {
+        "url:review": {"title": "Review", "kind": "review", "category": "games"},
+        "url:news": {"title": "News", "kind": "news", "category": "games"},
+        "url:noise": {"title": "Deals", "kind": "noise", "category": "games"},
+    }
+    scored_documents = [
+        (Document(page_content="", metadata={"candidate_key": key}), 0.5) for key in items_by_key
+    ]
+
+    scored = rag._score_documents(scored_documents, items_by_key, category="all")
+
+    assert scored["url:review"][1] == pytest.approx(0.55)
+    assert scored["url:news"][1] == pytest.approx(0.5)
+    assert scored["url:noise"][1] == pytest.approx(0.3)
 
 
 def test_diversify_by_source_caps_dominant_source() -> None:

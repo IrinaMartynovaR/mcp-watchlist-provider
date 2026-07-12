@@ -30,6 +30,9 @@ class ToolSettings(BaseSettings):
         default="уютная,атмосферная,cozy,vibe",
         alias="TOOLS_RECOMMENDATION_KEYWORD_VARIANTS",
     )
+    classifier_enabled: bool = Field(default=False, alias="TOOLS_CLASSIFIER_ENABLED")
+    classifier_model: str = Field(default="google/gemma-4-26b-a4b-it", alias="TOOLS_CLASSIFIER_MODEL")
+    classifier_batch_size: int = Field(default=25, alias="TOOLS_CLASSIFIER_BATCH_SIZE")
     rag_enabled: bool = Field(default=False, alias="TOOLS_RAG_ENABLED")
     hyde_enabled: bool = Field(default=False, alias="TOOLS_HYDE_ENABLED")
     memory_enabled: bool = Field(default=False, alias="TOOLS_MEMORY_ENABLED")
@@ -43,6 +46,11 @@ class ToolSettings(BaseSettings):
     feedback_dislike_weight: int = Field(default=-1, alias="TOOLS_FEEDBACK_DISLIKE_WEIGHT")
     feedback_watchlist_weight: int = Field(default=2, alias="TOOLS_FEEDBACK_WATCHLIST_WEIGHT")
     feedback_block_similar_weight: int = Field(default=-3, alias="TOOLS_FEEDBACK_BLOCK_SIMILAR_WEIGHT")
+
+    @property
+    def normalized_classifier_model(self) -> str:
+        """Возвращает очищенное имя модели LLM-классификатора."""
+        return self.classifier_model.strip()
 
     @property
     def normalized_keyword_marker(self) -> str:

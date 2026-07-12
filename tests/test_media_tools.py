@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.settings import BackendSettings
-from domain.models import FeedItem, Source, parse_category, parse_media_type
+from domain.models import FeedItem, Source, category_matches, parse_category, parse_media_type
 from mcp_tools import media
 from rss_feeds.client import RSSFetchResult
 from rss_feeds.settings import rss_settings
@@ -19,6 +19,17 @@ def test_parse_category_rejects_unknown_value() -> None:
 def test_parse_media_type_rejects_unknown_value() -> None:
     with pytest.raises(ValueError, match="Unsupported media type"):
         parse_media_type("book")
+
+
+def test_category_matches_bridges_movies_series() -> None:
+    assert category_matches("movies_series", "series")
+    assert category_matches("movies_series", "movies")
+    assert category_matches("movies", "movies_series")
+    assert category_matches("series", "movies_series")
+    assert category_matches("mixed", "series")
+    assert category_matches("games", "all")
+    assert not category_matches("games", "series")
+    assert not category_matches("movies_series", "games")
 
 
 def test_watchlist_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
