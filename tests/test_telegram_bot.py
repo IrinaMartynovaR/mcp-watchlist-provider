@@ -43,7 +43,28 @@ def test_format_recommendation_response_includes_candidates() -> None:
 
     assert "Try SUMMERHOUSE." in formatted
     assert "RSS" in formatted
-    assert "https://example.com/summerhouse" in formatted
+    assert f'<a href="https://example.com/summerhouse">{RU_TITLE}</a>' in formatted
+    assert "<i>StopGame</i>" in formatted
+
+
+def test_format_recommendation_response_escapes_html_in_candidates() -> None:
+    result = {
+        "recommendation": "<b>Take Tom & Jerry.</b>",
+        "candidates": [
+            {
+                "title": "Tom & Jerry <Deluxe>",
+                "source": "R&D <feed>",
+                "url": "https://example.com/tom?a=1&b=2",
+            }
+        ],
+    }
+
+    formatted = format_recommendation_response(result)
+
+    assert "<b>Take Tom & Jerry.</b>" in formatted
+    assert 'href="https://example.com/tom?a=1&amp;b=2"' in formatted
+    assert "Tom &amp; Jerry &lt;Deluxe&gt;" in formatted
+    assert "<i>R&amp;D &lt;feed&gt;</i>" in formatted
 
 
 def test_split_telegram_text_keeps_chunks_under_limit() -> None:

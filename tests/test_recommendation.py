@@ -1,8 +1,13 @@
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from mcp_tools import recommendation
+from app.settings import BackendSettings
+from llm_core import embeddings as llm_embeddings
+from llm_core.settings import llm_settings
+from mcp_tools import memory, rag, recommendation
+from mcp_tools.settings import tool_settings
 
 VIBE_GAME_QUERY = "\u0432\u0430\u0439\u0431\u043e\u0432\u0430\u044f \u0438\u0433\u0440\u0430"
 COZY_QUERY = "\u0443\u044e\u0442\u043d\u0430\u044f"
@@ -11,6 +16,8 @@ COZY_QUERY = "\u0443\u044e\u0442\u043d\u0430\u044f"
 @pytest.fixture(autouse=True)
 def skip_recommendation_history(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(recommendation, "save_recommendation_result", lambda _: None)
+    monkeypatch.setattr(recommendation, "semantic_search_data", lambda **_: [])
+    monkeypatch.setattr(recommendation, "semantic_memory_scores_data", lambda **_: {})
 
 
 def test_recommend_media_orchestrates_refresh_search_and_llm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,3 +194,161 @@ def test_recommend_media_returns_rss_candidates_when_llm_is_rate_limited(monkeyp
     assert result["llm_error"] == "LLM rate limit or quota exceeded."
     assert result["candidates"][0]["title"] == "RSS Candidate"
     assert "RSS Candidate" in result["recommendation"]
+
+
+def test_recommend_media_prefers_semantic_candidates(monkeypatch: pytest.MonkeyPatch) -> None:
+    naive_queries: list[str] = []
+
+    def search_cached_items_data(query: str, **_: Any) -> list[dict[str, Any]]:
+        naive_queries.append(query)
+        return [{"title": "Naive Candidate"}]
+
+    monkeypatch.setattr(recommendation, "fetch_latest_items_data", lambda **_: [])
+    monkeypatch.setattr(recommendation, "search_cached_items_data", search_cached_items_data)
+    monkeypatch.setattr(
+        recommendation,
+        "semantic_search_data",
+        lambda **_: [{"title": "Semantic Hit", "category": "games", "url": "https://example.com/hit"}],
+    )
+    monkeypatch.setattr(recommendation, "get_profile_data", lambda: {})
+    monkeypatch.setattr(recommendation, "list_watchlist_data", lambda **_: [])
+    monkeypatch.setattr(
+        recommendation,
+        "ask_llm_data",
+        lambda prompt: {"provider": "test_provider", "model": "test-model", "response": prompt},
+    )
+
+    result = recommendation.recommend_media_data(query="space adventure", category="games", refresh=False)
+
+    assert [item["title"] for item in result["candidates"]] == ["Semantic Hit"]
+    assert naive_queries == []
+    assert result["tool_usage"]["semantic_search"] is True
+    assert result["mcp_tool_usage"]["semantic_search"] is True
+    assert result["tool_usage"]["fallback_recent_search"] is False
+
+
+def test_recommend_media_falls_back_to_naive_when_semantic_is_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(recommendation, "fetch_latest_items_data", lambda **_: [])
+    monkeypatch.setattr(
+        recommendation,
+        "search_cached_items_data",
+        lambda **_: [{"title": "Naive Candidate", "url": "https://example.com/naive"}],
+    )
+    monkeypatch.setattr(recommendation, "semantic_search_data", lambda **_: [])
+    monkeypatch.setattr(recommendation, "get_profile_data", lambda: {})
+    monkeypatch.setattr(recommendation, "list_watchlist_data", lambda **_: [])
+    monkeypatch.setattr(
+        recommendation,
+        "ask_llm_data",
+        lambda prompt: {"provider": "test_provider", "model": "test-model", "response": prompt},
+    )
+
+    result = recommendation.recommend_media_data(query="space adventure", refresh=False)
+
+    assert [item["title"] for item in result["candidates"]] == ["Naive Candidate"]
+    assert result["tool_usage"]["semantic_search"] is False
+    assert result["mcp_tool_usage"]["semantic_search"] is False
+
+
+def test_recommend_media_blends_memory_score_into_preference_score(monkeypatch: pytest.MonkeyPatch) -> None:
+    def search_cached_items_data(query: str, **_: Any) -> list[dict[str, Any]]:
+        if not query:
+            return []
+        return [
+            {"title": "Plain", "url": "https://example.com/plain"},
+            {"title": "Memorable", "url": "https://example.com/memorable"},
+        ]
+
+    monkeypatch.setattr(recommendation, "fetch_latest_items_data", lambda **_: [])
+    monkeypatch.setattr(recommendation, "search_cached_items_data", search_cached_items_data)
+    monkeypatch.setattr(
+        recommendation,
+        "semantic_memory_scores_data",
+        lambda **_: {"url:https://example.com/memorable": 2.6},
+    )
+    monkeypatch.setattr(recommendation, "get_profile_data", lambda: {})
+    monkeypatch.setattr(recommendation, "list_watchlist_data", lambda **_: [])
+    monkeypatch.setattr(
+        recommendation,
+        "ask_llm_data",
+        lambda prompt: {"provider": "test_provider", "model": "test-model", "response": prompt},
+    )
+
+    result = recommendation.recommend_media_data(query="anything", refresh=False)
+
+    assert [item["title"] for item in result["candidates"]] == ["Memorable", "Plain"]
+    assert result["candidates"][0]["preference_score"] == 3
+    assert result["candidates"][0]["preference_memory_score"] == 2.6
+    assert result["candidates"][1]["preference_score"] == 0
+    assert result["candidates"][1]["preference_memory_score"] == 0.0
+    assert result["tool_usage"]["semantic_memory_score"] is True
+
+
+def test_interleave_by_source_round_robins_candidates() -> None:
+    candidates = [
+        {"title": "A1", "source": "A"},
+        {"title": "A2", "source": "A"},
+        {"title": "A3", "source": "A"},
+        {"title": "B1", "source": "B"},
+    ]
+
+    interleaved = recommendation._interleave_by_source(candidates)
+
+    assert [item["title"] for item in interleaved] == ["A1", "B1", "A2", "A3"]
+    assert [item["source"] for item in interleaved] == ["A", "B", "A", "A"]
+
+
+def test_interleave_by_source_keeps_single_source_order() -> None:
+    candidates = [
+        {"title": "A1", "source": "A"},
+        {"title": "A2", "source": "A"},
+    ]
+
+    assert recommendation._interleave_by_source(candidates) == candidates
+
+
+def test_recommend_media_semantic_failure_is_soft_and_offline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    poison_network: list[str],
+) -> None:
+    """RAG включён, но LLM_API_KEY пуст: fast-fail до сети, наивный путь работает."""
+    isolated_backend = BackendSettings(WATCHQUEST_DATA_DIR=tmp_path)
+    monkeypatch.setattr(llm_embeddings, "backend_settings", isolated_backend)
+    monkeypatch.setattr(memory, "backend_settings", isolated_backend)
+
+    monkeypatch.setattr(llm_settings, "provider", "openrouter")
+    monkeypatch.setattr(llm_settings, "api_key", "")
+    monkeypatch.setattr(llm_settings, "embedding_model", "openai/text-embedding-3-small")
+    monkeypatch.setattr(tool_settings, "rag_enabled", True)
+
+    monkeypatch.setattr(recommendation, "semantic_search_data", rag.semantic_search_data)
+    monkeypatch.setattr(recommendation, "semantic_memory_scores_data", memory.semantic_memory_scores_data)
+
+    monkeypatch.setattr(
+        rag,
+        "search_cached_items_data",
+        lambda **_: [{"title": "Pool Item", "url": "https://example.com/pool"}],
+    )
+
+    def naive_search(query: str, **_: Any) -> list[dict[str, Any]]:
+        if not query:
+            return []
+        return [{"title": "Naive Candidate", "url": "https://example.com/naive"}]
+
+    monkeypatch.setattr(recommendation, "fetch_latest_items_data", lambda **_: [])
+    monkeypatch.setattr(recommendation, "search_cached_items_data", naive_search)
+    monkeypatch.setattr(recommendation, "get_profile_data", lambda: {})
+    monkeypatch.setattr(recommendation, "list_watchlist_data", lambda **_: [])
+    monkeypatch.setattr(
+        recommendation,
+        "ask_llm_data",
+        lambda prompt: {"provider": "test_provider", "model": "test-model", "response": prompt},
+    )
+
+    result = recommendation.recommend_media_data(query="space adventure", refresh=False)
+
+    assert poison_network == []
+    assert [item["title"] for item in result["candidates"]] == ["Naive Candidate"]
+    assert result["tool_usage"]["semantic_search"] is False
+    assert result["llm_error"] is None

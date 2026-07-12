@@ -15,6 +15,7 @@ from mcp_tools.media import (
     update_profile_data,
     validate_sources_data,
 )
+from mcp_tools.myshows_import import import_myshows_history_data
 from mcp_tools.recommendation import recommend_media_data
 from mcp_tools.settings import tool_settings
 
@@ -212,6 +213,27 @@ def recommend_media(
         limit=limit,
         limit_per_source=limit_per_source,
     )
+
+
+@mcp.tool()
+def import_myshows_history(dry_run: bool = True) -> dict[str, Any]:
+    """Импортирует историю просмотров MyShows.me в графовую память предпочтений.
+
+    Требует MYSHOWS_LOGIN и MYSHOWS_PASSWORD в окружении. По умолчанию dry_run=True:
+    возвращается только сводка, в память ничего не записывается — так можно проверить
+    маппинг полей на реальном ответе API перед первым настоящим импортом.
+
+    Args:
+        dry_run: Если True — только посчитать сводку, ничего не записывать в память.
+
+    Returns:
+        Сводку импорта: сколько фильмов и сериалов обработано, сколько заметок
+        записано (или было бы записано при dry_run) и сколько пропущено.
+
+    Raises:
+        RuntimeError: Если логин в MyShows или вызовы его API завершились ошибкой.
+    """
+    return import_myshows_history_data(dry_run=dry_run)
 
 
 @mcp.resource("watchquest://profile")

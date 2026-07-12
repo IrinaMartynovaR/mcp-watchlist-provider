@@ -26,6 +26,8 @@ services:
       WATCHQUEST_DATA_DIR: /app/data
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://host.docker.internal:3000}
       LANGFUSE_BASE_URL: http://host.docker.internal:3000
+      MEMGRAPH_URL: bolt://host.docker.internal:7687
+      RSS_BRIDGE_URL: http://rss-bridge:80
     depends_on:
       - rss-bridge
     extra_hosts:
@@ -46,6 +48,8 @@ services:
       WATCHQUEST_DATA_DIR: /app/data
       LANGFUSE_HOST: ${LANGFUSE_HOST:-http://host.docker.internal:3000}
       LANGFUSE_BASE_URL: http://host.docker.internal:3000
+      MEMGRAPH_URL: bolt://host.docker.internal:7687
+      RSS_BRIDGE_URL: http://rss-bridge:80
     depends_on:
       - rss-bridge
     extra_hosts:

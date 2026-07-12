@@ -18,11 +18,17 @@ class RSSSettings(BaseSettings):
         default="WatchQuest/0.1 RSS reader (+https://github.com/IrinaMartynovaR/mcp-watchlist-provider)",
         alias="RSS_USER_AGENT",
     )
+    rss_bridge_url: str = Field(default="http://localhost:3001", alias="RSS_BRIDGE_URL")
 
     @property
     def normalized_rss_user_agent(self) -> str:
         """Возвращает очищенный User-Agent для RSS-запросов."""
         return self.rss_user_agent.strip()
+
+    @property
+    def normalized_rss_bridge_url(self) -> str:
+        """Возвращает базовый URL RSS-Bridge без завершающего slash."""
+        return self.rss_bridge_url.strip().rstrip("/")
 
 
 @lru_cache

@@ -12,6 +12,12 @@ dependencies = [
     "pydantic-settings>=2.14.0",
     "python-dotenv>=1.0.1",
     "langfuse>=4.0.0",
+    "langgraph>=1.2.9",
+    "langchain-core>=1.4.9",
+    "mem0ai>=1.0.11,<2",
+    "chromadb>=1.5.9",
+    "langchain-memgraph>=0.1.14",
+    "rank-bm25>=0.2.2",
 ]
 
 [project.scripts]
@@ -68,8 +74,8 @@ mypy_path = "src"
 plugins = []
 
 [[tool.mypy.overrides]]
-module = ["feedparser"]
+module = ["feedparser", "mem0"]
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/app", "src/domain", "src/llm_core", "src/mcp_server", "src/mcp_tools", "src/rss_feeds"]
+packages = ["src/app", "src/domain", "src/llm_core", "src/mcp_server", "src/mcp_tools", "src/myshows_client", "src/rss_feeds"]

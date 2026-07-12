@@ -8,6 +8,7 @@ from app.settings import BackendSettings
 from domain.models import FeedItem, Source, parse_category, parse_media_type
 from mcp_tools import media
 from rss_feeds.client import RSSFetchResult
+from rss_feeds.settings import rss_settings
 
 
 def test_parse_category_rejects_unknown_value() -> None:
@@ -123,3 +124,72 @@ def test_refresh_feeds_keeps_working_when_one_source_fails(
     assert persisted["items"][0]["url"] == "https://example.com/useful"
     assert persisted["sources"][1]["error"] == "broken feed"
 
+
+
+def test_scoped_refresh_preserves_other_sources_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    games_source = Source.model_validate(
+        {"name": "GamesFeed", "category": "games", "language": "en", "url": "https://example.com/games.xml"}
+    )
+    movies_source = Source.model_validate(
+        {"name": "MoviesFeed", "category": "movies_series", "language": "en", "url": "https://example.com/movies.xml"}
+    )
+
+    def make_item(title: str, url: str, source: str, category: str) -> FeedItem:
+        return FeedItem(
+            title=title,
+            url=url,
+            source=source,
+            source_language="en",
+            category=parse_category(category),
+            published_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+    def fake_fetch(source: Source, limit: int = 20) -> RSSFetchResult:
+        item = make_item(f"{source.name} item", f"https://example.com/{source.name}", source.name, source.category)
+        return RSSFetchResult(source=source, url=str(source.url), ok=True, items=[item], status_code=200)
+
+    monkeypatch.setattr(media, "backend_settings", BackendSettings(WATCHQUEST_DATA_DIR=tmp_path))
+    monkeypatch.setattr(media, "_load_sources", lambda: [games_source, movies_source])
+    monkeypatch.setattr(media, "fetch_rss_source_result", fake_fetch)
+
+    media.refresh_feeds_data(category="all", limit_per_source=5)
+    scoped = media.refresh_feeds_data(category="games", limit_per_source=5)
+
+    cached_sources = {item["source"] for item in scoped["items"]}
+    assert cached_sources == {"GamesFeed", "MoviesFeed"}
+
+    persisted = json.loads((tmp_path / "cache.json").read_text(encoding="utf-8"))
+    assert {item["source"] for item in persisted["items"]} == {"GamesFeed", "MoviesFeed"}
+
+
+def test_load_sources_substitutes_rss_bridge_placeholder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    backend_settings = BackendSettings(WATCHQUEST_DATA_DIR=tmp_path)
+    (tmp_path / "sources.json").write_text(
+        json.dumps(
+            {
+                "feeds": [
+                    {
+                        "name": "TG Channel",
+                        "category": "games",
+                        "language": "ru",
+                        "url": "{rss_bridge}/?action=display&bridge=TelegramBridge&username=demo&format=Atom",
+                    },
+                    {
+                        "name": "Plain",
+                        "category": "games",
+                        "language": "en",
+                        "url": "https://example.com/feed.xml",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(media, "backend_settings", backend_settings)
+    monkeypatch.setattr(rss_settings, "rss_bridge_url", "http://rss-bridge:80")
+
+    sources = media._load_sources()
+
+    # HttpUrl нормализует стандартный порт http (:80), опуская его.
+    assert str(sources[0].url) == "http://rss-bridge/?action=display&bridge=TelegramBridge&username=demo&format=Atom"
+    assert str(sources[1].url) == "https://example.com/feed.xml"

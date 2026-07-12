@@ -9,18 +9,31 @@ from domain.models import Category, FeedItem, Source, WatchlistItem, parse_media
 from domain.storage.json_store import read_json, write_json
 from mcp_tools.settings import tool_settings
 from rss_feeds.client import RSSFetchResult, fetch_rss_source_result
+from rss_feeds.settings import rss_settings
 
 logger = logging.getLogger(__name__)
+
+
+RSS_BRIDGE_PLACEHOLDER = "{rss_bridge}"
 
 
 def _load_sources() -> list[Source]:
     """Загружает RSS-источники из хранилища.
 
+    Плейсхолдер `{rss_bridge}` в URL источника заменяется на адрес RSS-Bridge
+    из настроек (`RSS_BRIDGE_URL`): локально это `http://localhost:3001`,
+    а внутри Docker-сети — имя сервиса, которое прокидывает compose.
+
     Returns:
         Валидированный список источников.
     """
     data: dict[str, Any] = read_json(backend_settings.sources_file, {"feeds": []})
-    sources = [Source.model_validate(item) for item in data.get("feeds", [])]
+    bridge_url = rss_settings.normalized_rss_bridge_url
+    sources = []
+    for item in data.get("feeds", []):
+        if isinstance(item.get("url"), str):
+            item = {**item, "url": item["url"].replace(RSS_BRIDGE_PLACEHOLDER, bridge_url)}
+        sources.append(Source.model_validate(item))
     logger.debug("RSS sources loaded", extra={"source_count": len(sources)})
     return sources
 
@@ -121,6 +134,35 @@ def _collect_rss_sources(category: Category, limit_per_source: int) -> tuple[lis
     return items, source_results
 
 
+def _preserved_cache_items(fetched_sources: set[str]) -> list[FeedItem]:
+    """Возвращает кешированные RSS-элементы источников, не попавших в текущий refresh.
+
+    Args:
+        fetched_sources: Имена источников, обновлённых в текущем refresh.
+
+    Returns:
+        Элементы кеша от всех остальных источников.
+    """
+    cached: dict[str, Any] = read_json(backend_settings.cache_file, {"items": []})
+    preserved = [FeedItem.model_validate(raw) for raw in cached.get("items", [])]
+    return [item for item in preserved if item.source not in fetched_sources]
+
+
+def candidate_key(item: dict[str, Any]) -> str:
+    """Строит стабильный ключ RSS-кандидата для дедупликации.
+
+    Args:
+        item: RSS-кандидат.
+
+    Returns:
+        Ключ по URL, если он есть, иначе ключ по названию.
+    """
+    url = str(item.get("url") or "").strip().lower()
+    if url:
+        return f"url:{url}"
+    return f"title:{str(item.get('title') or '').strip().lower()}"
+
+
 @observe(name="get_profile", as_type="tool")
 def get_profile_data() -> dict[str, Any]:
     """Возвращает профиль пользовательских предпочтений."""
@@ -190,6 +232,10 @@ def refresh_feeds_data(
 ) -> dict[str, Any]:
     """Обновляет RSS-кеш и сохраняет его на диск.
 
+    Category-scoped refresh обновляет только источники своей категории;
+    кешированные элементы остальных источников сохраняются, чтобы узкий
+    refresh не стирал кандидатов других категорий.
+
     Args:
         category: Категория источников.
         limit_per_source: Максимальное число записей на источник.
@@ -198,6 +244,9 @@ def refresh_feeds_data(
         Результат refresh-операции вместе с ошибками источников.
     """
     items, source_results = _collect_rss_sources(category=category, limit_per_source=limit_per_source)
+    if category != "all":
+        fetched_sources = {result["name"] for result in source_results}
+        items.extend(_preserved_cache_items(fetched_sources))
     items = _dedupe(items)
     items.sort(key=lambda item: item.published_at, reverse=True)
 

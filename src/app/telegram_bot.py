@@ -1,8 +1,12 @@
 import asyncio
+import html
 import logging
 from typing import Any
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -151,7 +155,9 @@ def format_recommendation_response(result: dict[str, Any]) -> str:
             title = str(item.get("title") or "Без названия").strip()
             source = str(item.get("source") or "unknown").strip()
             url = str(item.get("url") or "").strip()
-            candidate_lines.append(f"- {title} ({source})\n  {url}".rstrip())
+            candidate_lines.append(
+                f'• <a href="{html.escape(url, quote=True)}">{html.escape(title)}</a> — <i>{html.escape(source)}</i>'
+            )
 
     parts = [recommendation or "Не смогла собрать рекомендацию по текущим источникам."]
     if candidate_lines:
@@ -181,6 +187,24 @@ def format_watchlist_response(items: list[dict[str, Any]]) -> str:
         suffix = f" — {source}" if source else ""
         lines.append(f"{index}. {title} ({media_type}, {status}){suffix}")
     return "\n".join(lines)
+
+
+async def answer_chunk(message: Message, chunk: str) -> None:
+    """Отправляет один chunk с откатом на plain text при ошибке HTML-парсинга.
+
+    LLM может нарушить инструкцию про Telegram-safe HTML, тогда Telegram
+    вернёт ошибку "can't parse entities" — в этом случае тот же chunk
+    отправляется повторно без разметки, чтобы пользователь не потерял ответ.
+
+    Args:
+        message: Входящее Telegram-сообщение, на которое отвечаем.
+        chunk: Готовый фрагмент текста ответа.
+    """
+    try:
+        await message.answer(chunk, disable_web_page_preview=True)
+    except TelegramBadRequest:
+        LOGGER.warning("Telegram HTML parse failed, resending chunk as plain text")
+        await message.answer(chunk, parse_mode=None, disable_web_page_preview=True)
 
 
 async def answer_recommendation(message: Message, query: str) -> None:
@@ -214,7 +238,7 @@ async def answer_recommendation(message: Message, query: str) -> None:
         return
 
     for chunk in split_telegram_text(format_recommendation_response(result)):
-        await message.answer(chunk, disable_web_page_preview=True)
+        await answer_chunk(message, chunk)
     recommendation_id = str(result.get("id") or "").strip()
     if recommendation_id:
         await message.answer(
@@ -235,7 +259,7 @@ async def answer_watchlist(message: Message) -> None:
     """
     items = await asyncio.to_thread(list_watchlist_data, media_type="all", status="all")
     for chunk in split_telegram_text(format_watchlist_response(items)):
-        await message.answer(chunk, disable_web_page_preview=True)
+        await answer_chunk(message, chunk)
 
 
 async def answer_feedback(callback: CallbackQuery) -> None:
@@ -316,7 +340,10 @@ async def run_bot() -> None:
     if not backend_settings.normalized_telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not configured")
 
-    bot = Bot(token=backend_settings.normalized_telegram_bot_token)
+    bot = Bot(
+        token=backend_settings.normalized_telegram_bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dispatcher = create_dispatcher()
     await bot.delete_webhook(drop_pending_updates=True)
     LOGGER.info("Telegram bot polling started")

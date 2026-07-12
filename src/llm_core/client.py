@@ -1,6 +1,6 @@
 from typing import Protocol
 
-from llm_core.providers.zai_glm import ZAIGLMClient, ZAIGLMSettings
+from llm_core.providers.openrouter import OpenRouterClient, OpenRouterSettings
 from llm_core.schemas import ChatMessage
 from llm_core.settings import llm_settings
 
@@ -20,6 +20,17 @@ class LLMClient(Protocol):
         """
         ...
 
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        """Строит embedding-векторы для списка текстов.
+
+        Args:
+            texts: Тексты для векторизации.
+
+        Returns:
+            Список embedding-векторов в порядке входных текстов.
+        """
+        ...
+
 
 def create_llm_client() -> LLMClient:
     """Создаёт LLM-клиент на основе текущей конфигурации.
@@ -30,12 +41,13 @@ def create_llm_client() -> LLMClient:
     Raises:
         ValueError: Если выбран неподдерживаемый LLM-провайдер.
     """
-    if llm_settings.normalized_provider == "zai_glm":
-        return ZAIGLMClient(
-            settings=ZAIGLMSettings(
+    if llm_settings.normalized_provider == "openrouter":
+        return OpenRouterClient(
+            settings=OpenRouterSettings(
                 api_key=llm_settings.normalized_api_key,
                 base_url=llm_settings.normalized_base_url,
                 model=llm_settings.normalized_model,
+                embedding_model=llm_settings.normalized_embedding_model,
                 timeout_seconds=llm_settings.timeout_seconds,
                 temperature=llm_settings.temperature,
             )

@@ -1,16 +1,33 @@
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from app.settings import BackendSettings
-from mcp_tools import feedback, media
+from mcp_tools import feedback, media, memory
+from mcp_tools.settings import tool_settings
+
+
+class RecordingMemoryClient:
+    """Записывает вызовы `.add()` Mem0-клиента для проверок."""
+
+    def __init__(self) -> None:
+        self.add_calls: list[dict[str, Any]] = []
+
+    def add(self, messages: str, *, user_id: str, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.add_calls.append({"messages": messages, "user_id": user_id, "metadata": metadata})
+        return {"results": []}
 
 
 def test_feedback_updates_profile_preferences(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     profile_file = tmp_path / "profile.json"
+    backend_settings = BackendSettings(WATCHQUEST_DATA_DIR=tmp_path)
+    fake_memory = RecordingMemoryClient()
 
-    monkeypatch.setattr(feedback, "backend_settings", BackendSettings(WATCHQUEST_DATA_DIR=tmp_path))
+    monkeypatch.setattr(feedback, "backend_settings", backend_settings)
+    monkeypatch.setattr(tool_settings, "memory_enabled", True)
+    monkeypatch.setattr(memory, "_get_memory_client", lambda: fake_memory)
 
     feedback.save_recommendation_result(
         {
@@ -41,13 +58,21 @@ def test_feedback_updates_profile_preferences(tmp_path: Path, monkeypatch: pytes
     assert learned["sources"]["IndieWire"] == 1
     assert learned["tags"]["comedy"] == 1
 
+    assert len(fake_memory.add_calls) == 1
+    add_call = fake_memory.add_calls[0]
+    assert add_call["metadata"]["weight"] == 1
+    assert "Light Movie" in add_call["messages"]
+
 
 def test_watchlist_feedback_adds_top_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     watchlist_file = tmp_path / "watchlist.json"
     backend_settings = BackendSettings(WATCHQUEST_DATA_DIR=tmp_path)
+    fake_memory = RecordingMemoryClient()
 
     monkeypatch.setattr(feedback, "backend_settings", backend_settings)
     monkeypatch.setattr(media, "backend_settings", backend_settings)
+    monkeypatch.setattr(tool_settings, "memory_enabled", True)
+    monkeypatch.setattr(memory, "_get_memory_client", lambda: fake_memory)
 
     feedback.save_recommendation_result(
         {
@@ -74,6 +99,9 @@ def test_watchlist_feedback_adds_top_candidate(tmp_path: Path, monkeypatch: pyte
 
     watchlist = json.loads(watchlist_file.read_text(encoding="utf-8"))
     assert watchlist["items"][0]["url"] == "https://example.com/movie"
+
+    assert len(fake_memory.add_calls) == 1
+    assert fake_memory.add_calls[0]["metadata"]["weight"] == 2
 
 
 def test_feedback_rejects_unknown_recommendation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -30,6 +30,15 @@ class ToolSettings(BaseSettings):
         default="уютная,атмосферная,cozy,vibe",
         alias="TOOLS_RECOMMENDATION_KEYWORD_VARIANTS",
     )
+    rag_enabled: bool = Field(default=False, alias="TOOLS_RAG_ENABLED")
+    hyde_enabled: bool = Field(default=False, alias="TOOLS_HYDE_ENABLED")
+    memory_enabled: bool = Field(default=False, alias="TOOLS_MEMORY_ENABLED")
+    memgraph_url: str = Field(default="bolt://localhost:7687", alias="MEMGRAPH_URL")
+    memgraph_username: str = Field(default="memgraph", alias="MEMGRAPH_USERNAME")
+    memgraph_password: str = Field(default="", alias="MEMGRAPH_PASSWORD")
+    mem0_user_id: str = Field(default="watchquest-user", alias="MEM0_USER_ID")
+    memory_top_k: int = Field(default=5, alias="TOOLS_MEMORY_TOP_K")
+    memory_embedding_dims: int = Field(default=1536, alias="TOOLS_MEMORY_EMBEDDING_DIMS")
     feedback_like_weight: int = Field(default=1, alias="TOOLS_FEEDBACK_LIKE_WEIGHT")
     feedback_dislike_weight: int = Field(default=-1, alias="TOOLS_FEEDBACK_DISLIKE_WEIGHT")
     feedback_watchlist_weight: int = Field(default=2, alias="TOOLS_FEEDBACK_WATCHLIST_WEIGHT")

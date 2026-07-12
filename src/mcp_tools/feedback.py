@@ -10,6 +10,7 @@ from domain.models import (
 )
 from domain.storage.json_store import read_json, write_json
 from mcp_tools.media import add_to_watchlist_data
+from mcp_tools.memory import record_preference_note_data
 from mcp_tools.settings import tool_settings
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,14 @@ def _apply_feedback_to_profile(feedback: RecommendationFeedback, candidate: dict
         _bump_weight(learned, "tags", tag, weight)
 
     write_json(backend_settings.profile_file, profile)
+    try:
+        record_preference_note_data(feedback=feedback, candidate=candidate)
+    except Exception:
+        logger.warning(
+            "Failed to record preference note",
+            extra={"recommendation_id": feedback.recommendation_id, "action": feedback.action},
+            exc_info=True,
+        )
 
 
 def _bump_weight(learned: dict[str, Any], section: str, key: str, delta: int) -> None:
