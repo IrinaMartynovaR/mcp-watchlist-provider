@@ -1,5 +1,3 @@
-from functools import lru_cache
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -8,6 +6,7 @@ from domain.models import FeedbackAction
 
 class ToolSettings(BaseSettings):
     """Хранит лимиты и эвристики для MCP-инструментов."""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -33,8 +32,24 @@ class ToolSettings(BaseSettings):
     classifier_enabled: bool = Field(default=False, alias="TOOLS_CLASSIFIER_ENABLED")
     classifier_model: str = Field(default="google/gemma-4-26b-a4b-it", alias="TOOLS_CLASSIFIER_MODEL")
     classifier_batch_size: int = Field(default=25, alias="TOOLS_CLASSIFIER_BATCH_SIZE")
+    classifier_concurrency: int = Field(default=2, alias="TOOLS_CLASSIFIER_CONCURRENCY")
+    classifier_summary_prompt_chars: int = Field(default=200, alias="TOOLS_CLASSIFIER_SUMMARY_PROMPT_CHARS")
+    classifier_verdict_tokens: int = Field(default=120, alias="TOOLS_CLASSIFIER_VERDICT_TOKENS")
+    classifier_response_tokens_headroom: int = Field(
+        default=200,
+        alias="TOOLS_CLASSIFIER_RESPONSE_TOKENS_HEADROOM",
+    )
     rag_enabled: bool = Field(default=False, alias="TOOLS_RAG_ENABLED")
+    rag_pool_limit: int = Field(default=500, alias="TOOLS_RAG_POOL_LIMIT")
     hyde_enabled: bool = Field(default=False, alias="TOOLS_HYDE_ENABLED")
+    rag_exact_category_bonus: float = Field(default=0.05, alias="TOOLS_RAG_EXACT_CATEGORY_BONUS")
+    rag_medium_match_bonus: float = Field(default=0.25, alias="TOOLS_RAG_MEDIUM_MATCH_BONUS")
+    recommendation_medium_match_weight: int = Field(default=3, alias="TOOLS_RECOMMENDATION_MEDIUM_MATCH_WEIGHT")
+    recommendation_title_entity_weight: int = Field(default=1, alias="TOOLS_RECOMMENDATION_TITLE_ENTITY_WEIGHT")
+    rag_review_score_bonus: float = Field(default=0.05, alias="TOOLS_RAG_REVIEW_SCORE_BONUS")
+    rag_noise_score_penalty: float = Field(default=-0.2, alias="TOOLS_RAG_NOISE_SCORE_PENALTY")
+    recommendation_review_kind_weight: int = Field(default=1, alias="TOOLS_RECOMMENDATION_REVIEW_KIND_WEIGHT")
+    recommendation_noise_kind_weight: int = Field(default=-2, alias="TOOLS_RECOMMENDATION_NOISE_KIND_WEIGHT")
     memory_enabled: bool = Field(default=False, alias="TOOLS_MEMORY_ENABLED")
     memgraph_url: str = Field(default="bolt://localhost:7687", alias="MEMGRAPH_URL")
     memgraph_username: str = Field(default="memgraph", alias="MEMGRAPH_USERNAME")
@@ -79,16 +94,3 @@ class ToolSettings(BaseSettings):
             "watchlist": self.feedback_watchlist_weight,
             "block_similar": self.feedback_block_similar_weight,
         }
-
-
-@lru_cache(1)
-def get_tool_settings() -> ToolSettings:
-    """Загружает и кеширует настройки MCP-инструментов.
-
-    Returns:
-        Актуальные tool-настройки.
-    """
-    return ToolSettings()
-
-
-tool_settings = get_tool_settings()

@@ -1,4 +1,3 @@
-from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
@@ -7,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class BackendSettings(BaseSettings):
     """Хранит backend-настройки, пути данных и observability-конфиг."""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -17,8 +17,9 @@ class BackendSettings(BaseSettings):
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_max_message_length: int = Field(default=3900, alias="TELEGRAM_MAX_MESSAGE_LENGTH")
     telegram_candidate_preview_limit: int = Field(default=5, alias="TELEGRAM_CANDIDATE_PREVIEW_LIMIT")
-    telegram_recommendation_limit: int = Field(default=5, alias="TELEGRAM_RECOMMENDATION_LIMIT")
+    telegram_recommendation_limit: int = Field(default=8, alias="TELEGRAM_RECOMMENDATION_LIMIT")
     telegram_recommendation_source_limit: int = Field(default=8, alias="TELEGRAM_RECOMMENDATION_SOURCE_LIMIT")
+    telegram_rss_refresh_ttl_seconds: float = Field(default=1800.0, alias="TELEGRAM_RSS_REFRESH_TTL_SECONDS")
     telegram_feedback_callback_prefix: str = Field(default="feedback", alias="TELEGRAM_FEEDBACK_CALLBACK_PREFIX")
     telegram_watchlist_request_phrases: str = Field(
         default="watchlist,вотчлист,покажи список,покажи мой список,что в списке,мой список",
@@ -46,6 +47,25 @@ class BackendSettings(BaseSettings):
     telegram_feedback_block_similar_response: str = Field(
         default="Запомнила: похожее лучше не предлагать.",
         alias="TELEGRAM_FEEDBACK_BLOCK_SIMILAR_RESPONSE",
+    )
+    telegram_welcome_text: str = Field(
+        default=(
+            "Привет! Я WatchQuest.\n\n"
+            "Напиши, что хочется посмотреть или во что поиграть, а я проверю RSS-источники и соберу "
+            "рекомендацию.\n\n"
+            "Примеры:\n- посоветуй вайбовую игру\n- хочу сериал на вечер\n"
+            "- найди что-нибудь атмосферное про sci-fi"
+        ),
+        alias="TELEGRAM_WELCOME_TEXT",
+    )
+    telegram_help_text: str = Field(
+        default=(
+            "Команды:\n/start - начать\n/help - помощь\n"
+            "/recommend <запрос> - рекомендация через RSS и LLM\n\n"
+            "/watchlist - показать watchlist\n\n"
+            "Также можно написать запрос обычным сообщением."
+        ),
+        alias="TELEGRAM_HELP_TEXT",
     )
     langfuse_public_key: str = Field(default="", alias="LANGFUSE_PUBLIC_KEY")
     langfuse_secret_key: str = Field(default="", alias="LANGFUSE_SECRET_KEY")
@@ -105,6 +125,11 @@ class BackendSettings(BaseSettings):
         return self.data_dir / "classification_cache.json"
 
     @property
+    def query_analysis_cache_file(self) -> Path:
+        """Возвращает путь к JSON-файлу кеша LLM-анализа запросов."""
+        return self.data_dir / "query_analysis_cache.json"
+
+    @property
     def mem0_vector_store_dir(self) -> Path:
         """Возвращает директорию локального Chroma vector store для Mem0."""
         return self.data_dir / "mem0_chroma"
@@ -127,9 +152,7 @@ class BackendSettings(BaseSettings):
             Непустые фразы в нижнем регистре.
         """
         return tuple(
-            phrase.strip().lower()
-            for phrase in self.telegram_watchlist_request_phrases.split(",")
-            if phrase.strip()
+            phrase.strip().lower() for phrase in self.telegram_watchlist_request_phrases.split(",") if phrase.strip()
         )
 
     @property
@@ -161,16 +184,3 @@ class BackendSettings(BaseSettings):
     def normalized_log_date_format(self) -> str:
         """Возвращает формат даты логов с безопасным fallback."""
         return self.log_date_format.strip() or "%Y-%m-%d %H:%M:%S"
-
-
-@lru_cache
-def get_backend_settings() -> BackendSettings:
-    """Загружает и кеширует backend-настройки.
-
-    Returns:
-        Актуальные настройки backend-слоя.
-    """
-    return BackendSettings()
-
-
-backend_settings = get_backend_settings()

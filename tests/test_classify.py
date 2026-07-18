@@ -3,6 +3,7 @@ import feedparser
 from domain.models import Source
 from rss_feeds import client
 from rss_feeds.classify import classify_item_kind
+from rss_feeds.settings import RSSSettings
 
 
 def test_classify_detects_noise_in_titles() -> None:
@@ -40,8 +41,8 @@ def test_classify_defaults_to_news() -> None:
 
 def test_clean_summary_strips_html_and_truncates() -> None:
     raw = '<p>Great <b>game</b>&nbsp;&mdash; a hit!</p><img src="https://x.example/pixel.gif"/>'
-    assert client._clean_summary(raw) == "Great game — a hit!"
-    assert len(client._clean_summary("word " * 200)) <= client._SUMMARY_MAX_CHARS
+    assert client._clean_summary(raw, 500) == "Great game — a hit!"
+    assert len(client._clean_summary("word " * 200, 500)) <= 500
 
 
 def test_parse_items_sets_kind_and_cleaned_summary() -> None:
@@ -57,7 +58,7 @@ def test_parse_items_sets_kind_and_cleaned_summary() -> None:
         {"name": "Feed", "category": "games", "language": "en", "url": "https://example.com/rss"}
     )
 
-    items = client._parse_items(feedparser.parse(rss_xml), source=source, limit=10)
+    items = client._parse_items(feedparser.parse(rss_xml), source=source, limit=10, settings=RSSSettings())
 
     assert [item.kind for item in items] == ["review", "noise"]
     assert items[0].summary == "A masterpiece"

@@ -1,36 +1,30 @@
 import pytest
 
-from llm_core import client as llm_client_module
+from llm_core.client import create_llm_client
 from llm_core.providers.openrouter import OpenRouterClient
-from llm_core.settings import LLMSettings, llm_settings
+from llm_core.settings import LLMSettings
 
 
 def _settings(provider: str) -> LLMSettings:
-    return llm_settings.model_copy(
-        update={
-            "provider": provider,
-            "api_key": "test-key",
-            "base_url": "https://example.com",
-            "model": "test-model",
-            "embedding_model": "test-embedding-model",
-        }
+    return LLMSettings(
+        LLM_PROVIDER=provider,
+        LLM_API_KEY="test-key",
+        LLM_BASE_URL="https://example.com",
+        LLM_MODEL="test-model",
+        LLM_EMBEDDING_MODEL="test-embedding-model",
     )
 
 
-def test_create_llm_client_returns_openrouter_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(llm_client_module, "llm_settings", _settings("openrouter"))
-
-    client = llm_client_module.create_llm_client()
+def test_create_llm_client_returns_openrouter_client() -> None:
+    client = create_llm_client(_settings("openrouter"))
 
     assert isinstance(client, OpenRouterClient)
     assert client.settings.embedding_model == "test-embedding-model"
 
 
-def test_create_llm_client_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(llm_client_module, "llm_settings", _settings("unknown_provider"))
-
+def test_create_llm_client_rejects_unknown_provider() -> None:
     with pytest.raises(ValueError, match="Unsupported LLM provider"):
-        llm_client_module.create_llm_client()
+        create_llm_client(_settings("unknown_provider"))
 
 
 def test_default_provider_is_openrouter() -> None:

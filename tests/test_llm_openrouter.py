@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -15,7 +16,11 @@ from llm_core.schemas import ChatMessage
 EMBEDDINGS_URL = "https://example.com/embeddings"
 
 
-def _client(api_key: str = "test-key", embedding_model: str = "openai/text-embedding-3-small") -> OpenRouterClient:
+def _client(
+    api_key: str = "test-key",
+    embedding_model: str = "openai/text-embedding-3-small",
+    handler: Any | None = None,
+) -> OpenRouterClient:
     return OpenRouterClient(
         settings=OpenRouterSettings(
             api_key=api_key,
@@ -23,7 +28,8 @@ def _client(api_key: str = "test-key", embedding_model: str = "openai/text-embed
             model="openai/gpt-4o-mini",
             embedding_model=embedding_model,
             timeout_seconds=1,
-        )
+        ),
+        transport=httpx.MockTransport(handler) if handler is not None else None,
     )
 
 
@@ -62,90 +68,112 @@ def test_format_http_error_for_rate_limit() -> None:
     assert _format_http_error(response) == "LLM rate limit or quota exceeded. quota exceeded"
 
 
-def test_chat_wraps_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
-    def raise_timeout(*args: Any, **kwargs: Any) -> httpx.Response:
+def test_chat_wraps_timeouts() -> None:
+    def raise_timeout(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("slow")
 
-    monkeypatch.setattr(httpx.Client, "post", raise_timeout)
     messages: list[ChatMessage] = [{"role": "user", "content": "hello"}]
 
     with pytest.raises(RuntimeError, match="timed out"):
-        _client().chat(messages)
+        _client(handler=raise_timeout).chat(messages)
 
 
-def test_chat_model_override_replaces_default_model(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chat_model_override_replaces_default_model() -> None:
     payloads: list[dict[str, Any]] = []
 
-    def capture(self: httpx.Client, url: str, json: dict[str, Any] | None = None, **kwargs: Any) -> httpx.Response:
-        payloads.append(json or {})
+    def capture(request: httpx.Request) -> httpx.Response:
+        payloads.append(dict(json.loads(request.content)))
         return httpx.Response(
             status_code=200,
             json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
-            request=httpx.Request("POST", url),
+            request=request,
         )
 
-    monkeypatch.setattr(httpx.Client, "post", capture)
     messages: list[ChatMessage] = [{"role": "user", "content": "hello"}]
 
-    _client().chat(messages, model="google/gemma-4-26b-a4b-it")
-    _client().chat(messages)
+    _client(handler=capture).chat(messages, model="google/gemma-4-26b-a4b-it")
+    _client(handler=capture).chat(messages)
 
     assert payloads[0]["model"] == "google/gemma-4-26b-a4b-it"
     assert payloads[1]["model"] == "openai/gpt-4o-mini"
 
 
-def test_embed_fast_fails_without_api_key(poison_network: list[str]) -> None:
+def test_chat_reasoning_effort_from_settings_and_per_call_optout() -> None:
+    payloads: list[dict[str, Any]] = []
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        payloads.append(dict(json.loads(request.content)))
+        return httpx.Response(
+            status_code=200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+            request=request,
+        )
+
+    client = OpenRouterClient(
+        settings=OpenRouterSettings(
+            api_key="test-key",
+            base_url="https://example.com",
+            model="openai/gpt-5-mini",
+            reasoning_effort="minimal",
+            timeout_seconds=1,
+        ),
+        transport=httpx.MockTransport(capture),
+    )
+    messages: list[ChatMessage] = [{"role": "user", "content": "hello"}]
+
+    client.chat(messages)
+    client.chat(messages, model="google/gemma-4-26b-a4b-it", reasoning_effort="")
+
+    assert payloads[0]["reasoning"] == {"effort": "minimal"}
+    # Пустая строка отключает reasoning: не-reasoning модель (классификатор)
+    # иначе тратит весь max_tokens на thinking и возвращает пустой ответ.
+    assert "reasoning" not in payloads[1]
+
+
+def test_embed_fast_fails_without_api_key() -> None:
     with pytest.raises(RuntimeError, match="LLM_API_KEY"):
         _client(api_key="").embed(["hello"])
-    assert poison_network == []
 
 
-def test_embed_fast_fails_without_embedding_model(poison_network: list[str]) -> None:
+def test_embed_fast_fails_without_embedding_model() -> None:
     with pytest.raises(RuntimeError, match="LLM_EMBEDDING_MODEL"):
         _client(embedding_model="").embed(["hello"])
-    assert poison_network == []
 
 
-def test_embed_wraps_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
-    def raise_timeout(*args: Any, **kwargs: Any) -> httpx.Response:
+def test_embed_wraps_timeouts() -> None:
+    def raise_timeout(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("slow")
 
-    monkeypatch.setattr(httpx.Client, "post", raise_timeout)
-
     with pytest.raises(RuntimeError, match="timed out"):
-        _client().embed(["hello"])
+        _client(handler=raise_timeout).embed(["hello"])
 
 
-def test_embed_wraps_missing_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
-    def not_found(*args: Any, **kwargs: Any) -> httpx.Response:
+def test_embed_wraps_missing_endpoint() -> None:
+    def not_found(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             status_code=404,
             json={"error": {"message": "no embeddings endpoint"}},
-            request=httpx.Request("POST", EMBEDDINGS_URL),
+            request=request,
         )
 
-    monkeypatch.setattr(httpx.Client, "post", not_found)
-
     with pytest.raises(RuntimeError, match="HTTP 404"):
-        _client().embed(["hello"])
+        _client(handler=not_found).embed(["hello"])
 
 
-def test_embed_rejects_malformed_response(monkeypatch: pytest.MonkeyPatch) -> None:
-    def malformed(*args: Any, **kwargs: Any) -> httpx.Response:
+def test_embed_rejects_malformed_response() -> None:
+    def malformed(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             status_code=200,
             json={"data": [{"index": 0}]},
-            request=httpx.Request("POST", EMBEDDINGS_URL),
+            request=request,
         )
 
-    monkeypatch.setattr(httpx.Client, "post", malformed)
-
     with pytest.raises(ValueError, match="Unexpected embeddings response"):
-        _client().embed(["hello"])
+        _client(handler=malformed).embed(["hello"])
 
 
-def test_embed_orders_vectors_by_index(monkeypatch: pytest.MonkeyPatch) -> None:
-    def out_of_order(*args: Any, **kwargs: Any) -> httpx.Response:
+def test_embed_orders_vectors_by_index() -> None:
+    def out_of_order(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             status_code=200,
             json={
@@ -154,17 +182,14 @@ def test_embed_orders_vectors_by_index(monkeypatch: pytest.MonkeyPatch) -> None:
                     {"index": 0, "embedding": [0.1, 0.2]},
                 ]
             },
-            request=httpx.Request("POST", EMBEDDINGS_URL),
+            request=request,
         )
 
-    monkeypatch.setattr(httpx.Client, "post", out_of_order)
-
-    assert _client().embed(["first", "second"]) == [[0.1, 0.2], [0.3, 0.4]]
+    assert _client(handler=out_of_order).embed(["first", "second"]) == [[0.1, 0.2], [0.3, 0.4]]
 
 
-def test_embed_returns_empty_for_empty_input(poison_network: list[str]) -> None:
+def test_embed_returns_empty_for_empty_input() -> None:
     assert _client().embed([]) == []
-    assert poison_network == []
 
 
 def test_extract_embeddings_rejects_wrong_count() -> None:

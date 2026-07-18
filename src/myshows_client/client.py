@@ -7,11 +7,6 @@ from myshows_client.settings import MyShowsSettings
 
 logger = logging.getLogger(__name__)
 
-SESSION_URL = "https://myshows.me/api/session"
-RPC_URL = "https://myshows.me/v3/rpc/"
-MOVIES_PAGE_SIZE = 20
-MAX_MOVIE_PAGES = 200
-
 
 class MyShowsClient:
     """Реализует минимальный клиент неофициального JSON-RPC API MyShows.me.
@@ -21,13 +16,15 @@ class MyShowsClient:
     поэтому любые ошибки должны быть видны сразу, а не проглатываться.
     """
 
-    def __init__(self, settings: MyShowsSettings) -> None:
+    def __init__(self, settings: MyShowsSettings, transport: httpx.BaseTransport | None = None) -> None:
         """Создаёт клиента с настройками доступа к MyShows.
 
         Args:
             settings: Логин, пароль и таймаут MyShows API.
+            transport: Необязательный HTTP transport для тестов.
         """
         self.settings = settings
+        self.transport = transport
         self._token: str | None = None
 
     def _login(self) -> str:
@@ -49,7 +46,7 @@ class MyShowsClient:
 
         logger.info("MyShows login started", extra={"login": self.settings.login})
         data = self._post_json(
-            SESSION_URL,
+            self.settings.session_url,
             json_body={"login": self.settings.login, "password": self.settings.password},
             error_prefix="MyShows login",
             http_error_hint=". Check MYSHOWS_LOGIN/MYSHOWS_PASSWORD.",
@@ -80,7 +77,7 @@ class MyShowsClient:
         token = self._login()
         body = [{"jsonrpc": "2.0", "method": method, "params": params, "id": 1}]
         data = self._post_json(
-            RPC_URL,
+            self.settings.rpc_url,
             json_body=body,
             headers={"authorization2": f"Bearer {token}"},
             error_prefix=f"MyShows RPC {method}",
@@ -109,7 +106,12 @@ class MyShowsClient:
         """
         result = self._rpc(
             "profile.WatchedMovies",
-            {"page": page, "pageSize": MOVIES_PAGE_SIZE, "login": "", "search": {"sort": "watchedAt_desc"}},
+            {
+                "page": page,
+                "pageSize": self.settings.movies_page_size,
+                "login": "",
+                "search": {"sort": "watchedAt_desc"},
+            },
         )
         return _as_item_list(result)
 
@@ -123,7 +125,7 @@ class MyShowsClient:
             RuntimeError: Если один из вызовов API завершился ошибкой.
         """
         movies: list[dict[str, Any]] = []
-        for page in range(MAX_MOVIE_PAGES):
+        for page in range(self.settings.max_movie_pages):
             page_items = self.get_watched_movies(page=page)
             if not page_items:
                 break
@@ -173,7 +175,7 @@ class MyShowsClient:
                 либо ответ не является JSON.
         """
         try:
-            with httpx.Client(timeout=self.settings.timeout_seconds) as client:
+            with httpx.Client(timeout=self.settings.timeout_seconds, transport=self.transport) as client:
                 response = client.post(url, json=json_body, headers=headers)
                 response.raise_for_status()
         except httpx.HTTPStatusError as exc:

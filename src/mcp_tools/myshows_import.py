@@ -1,30 +1,33 @@
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from domain.models import Category
-from mcp_tools.memory import record_import_note_data
-from myshows_client.client import MyShowsClient
 from myshows_client.settings import MyShowsSettings
 
 logger = logging.getLogger(__name__)
 
-MOVIE_CATEGORY: Category = "movies_series"
-SHOW_CATEGORY: Category = "series"
-IMPORT_SOURCE = "myshows_import"
-
-# Импортная история — это prior, а не живой сигнал: заметок могут быть сотни,
-# и с полным весом они вытеснили бы немногочисленный живой feedback из top-k
-# соседей при скоринге. Скидка держит исторические заметки полезными, но слабее.
-IMPORT_WEIGHT_FACTOR = 0.5
-
-# Значения статусов и имена полей неофициального API не подтверждены на реальном
-# ответе (см. dry_run в import_myshows_history_data), поэтому все обращения к полям
-# изолированы в маленьких хелперах ниже — их легко поправить в одном месте.
-_POSITIVE_SHOW_STATUSES = frozenset({"watching", "finished", "watched"})
-_NEGATIVE_SHOW_STATUSES = frozenset({"cancelled", "canceled"})
+ImportRecorder = Callable[[str, float, Category, dict[str, Any] | None], None]
 
 
-def import_myshows_history_data(dry_run: bool = False) -> dict[str, Any]:
+class MyShowsHistoryClient(Protocol):
+    """Задаёт минимальный контракт клиента для импорта истории."""
+
+    def iter_all_watched_movies(self) -> list[dict[str, Any]]:
+        """Возвращает просмотренные фильмы."""
+        ...
+
+    def get_shows(self) -> list[dict[str, Any]]:
+        """Возвращает сериалы пользователя."""
+        ...
+
+
+def import_myshows_history_data(
+    client: MyShowsHistoryClient,
+    record_import: ImportRecorder,
+    settings: MyShowsSettings,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     """Импортирует историю MyShows (просмотрено/брошено) в графовую память предпочтений.
 
     Фильмы взвешиваются по пользовательскому рейтингу (шкала 1-10):
@@ -32,6 +35,9 @@ def import_myshows_history_data(dry_run: bool = False) -> dict[str, Any]:
     Сериалы — по статусу: смотрит/досмотрел -> +2, брошен -> -2, иначе пропуск.
 
     Args:
+        client: Настроенный клиент MyShows.
+        record_import: Инъецируемая функция записи заметки в память.
+        settings: Настройки правил импорта MyShows.
         dry_run: Если True — только считает и возвращает сводку, ничего не пишет в память
             (для проверки маппинга полей на реальном ответе перед первым реальным запуском).
 
@@ -43,7 +49,6 @@ def import_myshows_history_data(dry_run: bool = False) -> dict[str, Any]:
     Raises:
         RuntimeError: Если логин в MyShows или вызовы его API завершились ошибкой.
     """
-    client = MyShowsClient(MyShowsSettings())
     movies = client.iter_all_watched_movies()
     shows = client.get_shows()
 
@@ -52,14 +57,24 @@ def import_myshows_history_data(dry_run: bool = False) -> dict[str, Any]:
 
     for movie in movies:
         recorded = _record_note(
-            text=_note_text(movie), weight=_movie_weight(movie), category=MOVIE_CATEGORY, dry_run=dry_run
+            text=_note_text(movie),
+            weight=_movie_weight(movie),
+            category=settings.movie_category,
+            dry_run=dry_run,
+            record_import=record_import,
+            settings=settings,
         )
         notes_recorded += int(recorded)
         skipped += int(not recorded)
 
     for show in shows:
         recorded = _record_note(
-            text=_note_text(show), weight=_show_weight(show), category=SHOW_CATEGORY, dry_run=dry_run
+            text=_note_text(show),
+            weight=_show_weight(show, settings),
+            category=settings.show_category,
+            dry_run=dry_run,
+            record_import=record_import,
+            settings=settings,
         )
         notes_recorded += int(recorded)
         skipped += int(not recorded)
@@ -74,7 +89,14 @@ def import_myshows_history_data(dry_run: bool = False) -> dict[str, Any]:
     return summary
 
 
-def _record_note(text: str, weight: int, category: Category, dry_run: bool) -> bool:
+def _record_note(
+    text: str,
+    weight: int,
+    category: Category,
+    dry_run: bool,
+    record_import: ImportRecorder,
+    settings: MyShowsSettings,
+) -> bool:
     """Записывает одну заметку импорта, если у элемента есть полезный сигнал.
 
     Args:
@@ -82,6 +104,8 @@ def _record_note(text: str, weight: int, category: Category, dry_run: bool) -> b
         weight: Знаковый вес заметки; 0 означает отсутствие сигнала.
         category: Категория заметки.
         dry_run: Если True — заметка только учитывается, но не записывается.
+        record_import: Инъецируемая функция записи заметки.
+        settings: Настройки веса и source metadata.
 
     Returns:
         True, если заметка записана (или была бы записана при dry_run), иначе False.
@@ -89,12 +113,7 @@ def _record_note(text: str, weight: int, category: Category, dry_run: bool) -> b
     if weight == 0 or not text:
         return False
     if not dry_run:
-        record_import_note_data(
-            text=text,
-            weight=weight * IMPORT_WEIGHT_FACTOR,
-            category=category,
-            extra_metadata={"source": IMPORT_SOURCE},
-        )
+        record_import(text, weight * settings.import_weight_factor, category, {"source": settings.import_source})
     return True
 
 
@@ -152,7 +171,7 @@ def _show_status(item: dict[str, Any]) -> str | None:
     return None
 
 
-def _show_weight(item: dict[str, Any]) -> int:
+def _show_weight(item: dict[str, Any], settings: MyShowsSettings) -> int:
     """Переводит статус просмотра и оценку сериала в знаковый вес заметки.
 
     Явная пользовательская оценка (шкала 1-5, подтверждено на живом ответе)
@@ -161,6 +180,7 @@ def _show_weight(item: dict[str, Any]) -> int:
 
     Args:
         item: Сырые данные сериала из `profile.Shows`.
+        settings: Настройки положительных и отрицательных статусов.
 
     Returns:
         Вес заметки: +3/-2 по оценке, +2 (смотрит/досмотрел),
@@ -172,9 +192,9 @@ def _show_weight(item: dict[str, Any]) -> int:
     if rating is not None and rating <= 2:
         return -2
     status = _show_status(item)
-    if status in _POSITIVE_SHOW_STATUSES:
+    if status in settings.normalized_positive_show_statuses:
         return 2
-    if status in _NEGATIVE_SHOW_STATUSES:
+    if status in settings.normalized_negative_show_statuses:
         return -2
     return 0
 

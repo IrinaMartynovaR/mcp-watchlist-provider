@@ -1,9 +1,14 @@
+import json
+from datetime import UTC, datetime, timedelta
+
+from app.config import RuntimeConfig
 from app.telegram_bot import (
     format_recommendation_response,
     format_watchlist_response,
     infer_category,
     is_watchlist_request,
     recommendation_feedback_keyboard,
+    should_refresh_rss_cache,
     split_telegram_text,
 )
 
@@ -27,7 +32,7 @@ def test_infer_category_detects_movies_and_series() -> None:
     assert infer_category(RU_SERIES_QUERY) == "series"
 
 
-def test_format_recommendation_response_includes_candidates() -> None:
+def test_format_recommendation_response_includes_candidates(runtime_config: RuntimeConfig) -> None:
     result = {
         "recommendation": "Try SUMMERHOUSE.",
         "candidates": [
@@ -39,7 +44,7 @@ def test_format_recommendation_response_includes_candidates() -> None:
         ],
     }
 
-    formatted = format_recommendation_response(result)
+    formatted = format_recommendation_response(result, runtime_config.backend)
 
     assert "Try SUMMERHOUSE." in formatted
     assert "RSS" in formatted
@@ -47,7 +52,7 @@ def test_format_recommendation_response_includes_candidates() -> None:
     assert "<i>StopGame</i>" in formatted
 
 
-def test_format_recommendation_response_escapes_html_in_candidates() -> None:
+def test_format_recommendation_response_escapes_html_in_candidates(runtime_config: RuntimeConfig) -> None:
     result = {
         "recommendation": "<b>Take Tom & Jerry.</b>",
         "candidates": [
@@ -59,7 +64,7 @@ def test_format_recommendation_response_escapes_html_in_candidates() -> None:
         ],
     }
 
-    formatted = format_recommendation_response(result)
+    formatted = format_recommendation_response(result, runtime_config.backend)
 
     assert "<b>Take Tom & Jerry.</b>" in formatted
     assert 'href="https://example.com/tom?a=1&amp;b=2"' in formatted
@@ -67,16 +72,16 @@ def test_format_recommendation_response_escapes_html_in_candidates() -> None:
     assert "<i>R&amp;D &lt;feed&gt;</i>" in formatted
 
 
-def test_split_telegram_text_keeps_chunks_under_limit() -> None:
-    chunks = split_telegram_text("word\n\n" * 100, limit=50)
+def test_split_telegram_text_keeps_chunks_under_limit(runtime_config: RuntimeConfig) -> None:
+    chunks = split_telegram_text("word\n\n" * 100, runtime_config.backend, limit=50)
 
     assert len(chunks) > 1
     assert all(len(chunk) <= 50 for chunk in chunks)
 
 
-def test_watchlist_request_detects_ru_and_en_text() -> None:
-    assert is_watchlist_request("покажи мой вотчлист")
-    assert is_watchlist_request("show watchlist")
+def test_watchlist_request_detects_ru_and_en_text(runtime_config: RuntimeConfig) -> None:
+    assert is_watchlist_request("покажи мой вотчлист", runtime_config.backend)
+    assert is_watchlist_request("show watchlist", runtime_config.backend)
 
 
 def test_format_watchlist_response_handles_items() -> None:
@@ -95,13 +100,30 @@ def test_format_watchlist_response_handles_items() -> None:
     assert "manual" in formatted
 
 
-def test_recommendation_feedback_keyboard_contains_expected_callbacks() -> None:
-    keyboard = recommendation_feedback_keyboard("rec-1")
-    callback_data = [
-        button.callback_data
-        for row in keyboard.inline_keyboard
-        for button in row
-    ]
+def test_recommendation_feedback_keyboard_contains_expected_callbacks(runtime_config: RuntimeConfig) -> None:
+    keyboard = recommendation_feedback_keyboard("rec-1", runtime_config.backend)
+    callback_data = [button.callback_data for row in keyboard.inline_keyboard for button in row]
 
     assert "feedback:like:rec-1" in callback_data
     assert "feedback:watchlist:rec-1" in callback_data
+
+
+def test_should_refresh_rss_cache_respects_ttl(runtime_config: RuntimeConfig) -> None:
+    cached_at = datetime(2026, 1, 1, tzinfo=UTC)
+    runtime_config.backend.cache_file.write_text(
+        json.dumps({"items": [], "refreshed_at_by_category": {"all": cached_at.isoformat()}}),
+        encoding="utf-8",
+    )
+
+    assert not should_refresh_rss_cache(runtime_config.backend, "games", cached_at + timedelta(minutes=5))
+    assert should_refresh_rss_cache(runtime_config.backend, "games", cached_at + timedelta(minutes=31))
+
+
+def test_should_refresh_rss_cache_rejects_other_scoped_category(runtime_config: RuntimeConfig) -> None:
+    cached_at = datetime(2026, 1, 1, tzinfo=UTC)
+    runtime_config.backend.cache_file.write_text(
+        json.dumps({"items": [], "refreshed_at_by_category": {"games": cached_at.isoformat()}}),
+        encoding="utf-8",
+    )
+
+    assert should_refresh_rss_cache(runtime_config.backend, "series", cached_at + timedelta(minutes=5))

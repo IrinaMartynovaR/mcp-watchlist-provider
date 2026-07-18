@@ -1,207 +1,213 @@
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
 from statistics import fmean
 from typing import Any
 
 from langfuse import observe
 
-# Mem0 по умолчанию отправляет анонимную телеметрию в PostHog; флаг читается
-# один раз при импорте модуля mem0, поэтому выключаем его заранее. setdefault
-# позволяет сознательно включить телеметрию обычной env-переменной.
+# Mem0 читает флаг телеметрии во время импорта. Пользователь по-прежнему может
+# сознательно переопределить значение через окружение.
 os.environ.setdefault("MEM0_TELEMETRY", "False")
 
 from mem0 import Memory
 
-from app.settings import backend_settings
+from app.config import RuntimeConfig
 from domain.models import Category, RecommendationFeedback
-from llm_core.settings import llm_settings
 from mcp_tools.media import candidate_key
 from mcp_tools.rag import candidate_text
-from mcp_tools.settings import tool_settings
 
 logger = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1)
-def _get_memory_client() -> Memory:
-    """Возвращает ленивый singleton Mem0-клиента графовой памяти.
+class MemoryService:
+    """Инкапсулирует ленивый Mem0-клиент и операции графовой памяти.
 
-    Клиент строится при первом обращении, а не на import-время,
-    чтобы выключенная фича никогда не инициировала подключение
-    к Memgraph/Chroma при старте приложения.
-
-    Returns:
-        Инициализированный Mem0-клиент с Chroma vector store
-        и Memgraph graph store.
+    Args:
+        config: Единый runtime config приложения.
+        client: Необязательный готовый Mem0-совместимый клиент для тестов.
     """
-    return Memory.from_config(
-        {
+
+    def __init__(self, config: RuntimeConfig, client: Any | None = None) -> None:
+        """Создаёт сервис с ленивым или заранее переданным клиентом.
+
+        Args:
+            config: Единый runtime config приложения.
+            client: Необязательный Mem0-совместимый клиент.
+        """
+        self.config = config
+        self._client = client
+
+    def _get_client(self) -> Any:
+        """Лениво создаёт и кеширует Mem0-клиент внутри service instance.
+
+        Returns:
+            Mem0-совместимый клиент.
+        """
+        if self._client is None:
+            self._client = Memory.from_config(self._memory_config())
+        return self._client
+
+    def _memory_config(self) -> dict[str, Any]:
+        """Собирает конфигурацию Mem0 из единого runtime config.
+
+        Returns:
+            Конфигурация vector, graph, LLM и embedding providers.
+        """
+        backend = self.config.backend
+        tools = self.config.tools
+        llm = self.config.llm
+        return {
             "vector_store": {
                 "provider": "chroma",
                 "config": {
                     "collection_name": "watchquest_preferences",
-                    "path": str(backend_settings.mem0_vector_store_dir),
+                    "path": str(backend.mem0_vector_store_dir),
                 },
             },
             "graph_store": {
                 "provider": "memgraph",
                 "config": {
-                    "url": tool_settings.memgraph_url,
-                    # Mem0 требует непустые credentials; Memgraph без включённой
-                    # авторизации игнорирует их, поэтому подставляем безопасный fallback.
-                    "username": tool_settings.memgraph_username or "memgraph",
-                    "password": tool_settings.memgraph_password or "memgraph",
+                    "url": tools.memgraph_url,
+                    "username": tools.memgraph_username or "memgraph",
+                    "password": tools.memgraph_password or "memgraph",
                 },
             },
             "llm": {
                 "provider": "openai",
                 "config": {
-                    "model": llm_settings.normalized_model,
-                    "openai_base_url": llm_settings.normalized_base_url,
-                    "api_key": llm_settings.normalized_api_key,
+                    "model": llm.normalized_model,
+                    "openai_base_url": llm.normalized_base_url,
+                    "api_key": llm.normalized_api_key,
                 },
             },
             "embedder": {
                 "provider": "openai",
                 "config": {
-                    "model": llm_settings.normalized_embedding_model,
-                    "openai_base_url": llm_settings.normalized_base_url,
-                    "api_key": llm_settings.normalized_api_key,
-                    # Обязательное поле для memgraph graph store (Mem0 читает его
-                    # без fallback); 1536 — размерность text-embedding-3-small.
-                    "embedding_dims": tool_settings.memory_embedding_dims,
+                    "model": llm.normalized_embedding_model,
+                    "openai_base_url": llm.normalized_base_url,
+                    "api_key": llm.normalized_api_key,
+                    "embedding_dims": tools.memory_embedding_dims,
                 },
             },
         }
-    )
 
+    def record_preference(
+        self,
+        feedback: RecommendationFeedback,
+        candidate: dict[str, Any] | None,
+    ) -> None:
+        """Fail-soft сохраняет feedback-сигнал в графовую память.
 
-def record_preference_note_data(feedback: RecommendationFeedback, candidate: dict[str, Any] | None) -> None:
-    """Сохраняет заметку предпочтения по feedback-событию в графовую память.
-
-    Функция спроектирована как fail-soft: сбой Mem0/Memgraph/Chroma логируется
-    и не пробрасывается наверх, чтобы не ломать обработку feedback.
-
-    Args:
-        feedback: Feedback-событие пользователя.
-        candidate: Кандидат рекомендации, к которому относится feedback.
-    """
-    if not tool_settings.memory_enabled:
-        return
-    try:
-        text = _note_text(feedback, candidate)
-        if not text:
-            logger.debug(
-                "Preference note skipped: empty text",
-                extra={"recommendation_id": feedback.recommendation_id, "action": feedback.action},
-            )
+        Args:
+            feedback: Пользовательский feedback.
+            candidate: Кандидат, к которому относится feedback.
+        """
+        tools = self.config.tools
+        if not tools.memory_enabled:
             return
-        weight = tool_settings.feedback_weights[feedback.action]
-        _get_memory_client().add(
-            text,
-            user_id=tool_settings.mem0_user_id,
-            metadata={"weight": weight, "category": feedback.category, "action": feedback.action},
-        )
-        logger.info(
-            "Preference note recorded",
-            extra={"action": feedback.action, "weight": weight, "user_id": tool_settings.mem0_user_id},
-        )
-    except Exception:
-        logger.warning(
-            "Failed to record preference note",
-            extra={"recommendation_id": feedback.recommendation_id, "action": feedback.action},
-            exc_info=True,
-        )
-
-
-def record_import_note_data(
-    text: str,
-    weight: float,
-    category: Category,
-    extra_metadata: dict[str, Any] | None = None,
-) -> None:
-    """Записывает заметку предпочтения из внешнего источника (например, MyShows) в графовую память.
-
-    Fail-soft: сбой Mem0/Memgraph логируется и не пробрасывается наверх.
-
-    Args:
-        text: Текст заметки предпочтения.
-        weight: Знаковый вес заметки (положительный — нравится, отрицательный — не нравится).
-        category: Категория, к которой относится заметка.
-        extra_metadata: Дополнительные метаданные (например, источник импорта).
-    """
-    if not tool_settings.memory_enabled or not text:
-        return
-    try:
-        metadata: dict[str, Any] = {"weight": weight, "category": category}
-        if extra_metadata:
-            metadata.update(extra_metadata)
-        _get_memory_client().add(text, user_id=tool_settings.mem0_user_id, metadata=metadata)
-    except Exception:
-        logger.warning("Failed to record imported preference note", exc_info=True)
-
-
-@observe(name="semantic_memory_score", as_type="tool")
-def semantic_memory_scores_data(
-    candidates: list[dict[str, Any]],
-    top_k: int = tool_settings.memory_top_k,
-) -> dict[str, float]:
-    """Считает знаковый memory-score кандидатов по графовой памяти предпочтений.
-
-    Для каждого кандидата запрашиваются top-k релевантных воспоминаний Mem0,
-    score — среднее произведений релевантности воспоминания на его знаковый вес.
-    Функция спроектирована как fail-soft: любая ошибка приводит
-    к пустому результату, а не к исключению.
-
-    Args:
-        candidates: RSS-кандидаты рекомендации.
-        top_k: Число ближайших воспоминаний на кандидата.
-
-    Returns:
-        Словарь candidate_key -> знаковый score либо пустой словарь,
-        если фича выключена, кандидатов или воспоминаний нет, или произошла ошибка.
-    """
-    if not tool_settings.memory_enabled:
-        return {}
-    if not candidates or top_k <= 0:
-        return {}
-
-    try:
-        client = _get_memory_client()
-
-        def _search(candidate: dict[str, Any]) -> dict[str, Any]:
-            result: dict[str, Any] = client.search(
-                query=candidate_text(candidate),
-                user_id=tool_settings.mem0_user_id,
-                limit=top_k,
+        try:
+            text = _note_text(feedback, candidate)
+            if not text:
+                logger.debug(
+                    "Preference note skipped: empty text",
+                    extra={"recommendation_id": feedback.recommendation_id, "action": feedback.action},
+                )
+                return
+            weight = tools.feedback_weights[feedback.action]
+            self._get_client().add(
+                text,
+                user_id=tools.mem0_user_id,
+                metadata={"weight": weight, "category": feedback.category, "action": feedback.action},
             )
-            return result
+            logger.info(
+                "Preference note recorded",
+                extra={"action": feedback.action, "weight": weight, "user_id": tools.mem0_user_id},
+            )
+        except Exception:
+            logger.warning(
+                "Failed to record preference note",
+                extra={"recommendation_id": feedback.recommendation_id, "action": feedback.action},
+                exc_info=True,
+            )
 
-        # Каждый поиск — независимый round-trip к Memgraph/Chroma; распараллеливаем
-        # по кандидатам через потоки, чтобы не платить N последовательных задержек.
-        with ThreadPoolExecutor(max_workers=min(len(candidates), 8)) as executor:
-            responses = list(executor.map(_search, candidates))
+    def record_import(
+        self,
+        text: str,
+        weight: float,
+        category: Category,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Fail-soft сохраняет сигнал из внешнего источника.
 
-        scores: dict[str, float] = {}
-        for candidate, response in zip(candidates, responses, strict=True):
-            weighted = [
-                float(item.get("score") or 0.0) * float((item.get("metadata") or {}).get("weight") or 0.0)
-                for item in response.get("results", [])
-                if isinstance(item, dict)
-            ]
-            if not weighted:
-                continue
-            scores[candidate_key(candidate)] = float(fmean(weighted))
-        logger.info(
-            "Semantic memory scores computed",
-            extra={"candidate_count": len(candidates), "scored_count": len(scores), "top_k": top_k},
-        )
-        return scores
-    except Exception:
-        logger.warning("Semantic memory scoring failed", extra={"candidate_count": len(candidates)}, exc_info=True)
-        return {}
+        Args:
+            text: Текст заметки предпочтения.
+            weight: Знаковый вес заметки.
+            category: Категория заметки.
+            extra_metadata: Дополнительные метаданные источника.
+        """
+        tools = self.config.tools
+        if not tools.memory_enabled or not text:
+            return
+        try:
+            metadata: dict[str, Any] = {"weight": weight, "category": category}
+            if extra_metadata:
+                metadata.update(extra_metadata)
+            self._get_client().add(text, user_id=tools.mem0_user_id, metadata=metadata)
+        except Exception:
+            logger.warning("Failed to record imported preference note", exc_info=True)
+
+    @observe(name="semantic_memory_score", as_type="tool")
+    def semantic_scores(self, candidates: list[dict[str, Any]], top_k: int | None = None) -> dict[str, float]:
+        """Считает знаковый memory-score для RSS-кандидатов.
+
+        Args:
+            candidates: Кандидаты рекомендации.
+            top_k: Число ближайших воспоминаний; по умолчанию берётся из config.
+
+        Returns:
+            Словарь ``candidate_key -> score`` либо пустой словарь при сбое.
+        """
+        tools = self.config.tools
+        memory_limit = top_k if top_k is not None else tools.memory_top_k
+        if not tools.memory_enabled or not candidates or memory_limit <= 0:
+            return {}
+
+        try:
+            client = self._get_client()
+
+            def search(candidate: dict[str, Any]) -> dict[str, Any]:
+                result: dict[str, Any] = client.search(
+                    query=candidate_text(candidate),
+                    user_id=tools.mem0_user_id,
+                    limit=memory_limit,
+                )
+                return result
+
+            with ThreadPoolExecutor(max_workers=min(len(candidates), 8)) as executor:
+                responses = list(executor.map(search, candidates))
+
+            scores: dict[str, float] = {}
+            for candidate, response in zip(candidates, responses, strict=True):
+                weighted = [
+                    float(item.get("score") or 0.0) * float((item.get("metadata") or {}).get("weight") or 0.0)
+                    for item in response.get("results", [])
+                    if isinstance(item, dict)
+                ]
+                if weighted:
+                    scores[candidate_key(candidate)] = float(fmean(weighted))
+            logger.info(
+                "Semantic memory scores computed",
+                extra={"candidate_count": len(candidates), "scored_count": len(scores), "top_k": memory_limit},
+            )
+            return scores
+        except Exception:
+            logger.warning(
+                "Semantic memory scoring failed",
+                extra={"candidate_count": len(candidates)},
+                exc_info=True,
+            )
+            return {}
 
 
 def _note_text(feedback: RecommendationFeedback, candidate: dict[str, Any] | None) -> str:

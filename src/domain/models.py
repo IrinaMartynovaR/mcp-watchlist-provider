@@ -89,6 +89,7 @@ def parse_feedback_action(value: str) -> FeedbackAction:
 
 class Source(BaseModel):
     """Описывает один RSS-источник WatchQuest."""
+
     name: str
     category: Category = "mixed"
     language: str = "unknown"
@@ -97,12 +98,14 @@ class Source(BaseModel):
 
 class FeedItem(BaseModel):
     """Описывает нормализованную запись из RSS-ленты."""
+
     title: str
     url: str
     source: str
     source_language: str = "unknown"
     category: Category = "mixed"
     kind: ItemKind = "news"
+    medium: str = ""
     title_entity: str = ""
     summary: str = ""
     published_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -111,6 +114,7 @@ class FeedItem(BaseModel):
 
 class WatchlistItem(BaseModel):
     """Описывает элемент пользовательского watchlist."""
+
     title: str
     type: MediaType = "unknown"
     url: str | None = None
@@ -124,6 +128,7 @@ class WatchlistItem(BaseModel):
 
 class RecommendationRecord(BaseModel):
     """Описывает сохранённую рекомендацию и её контекст."""
+
     id: str
     query: str
     category: Category = "all"
@@ -136,6 +141,7 @@ class RecommendationRecord(BaseModel):
 
 class RecommendationFeedback(BaseModel):
     """Описывает пользовательскую оценку сохранённой рекомендации."""
+
     recommendation_id: str
     action: FeedbackAction
     query: str = ""
@@ -143,4 +149,3 @@ class RecommendationFeedback(BaseModel):
     title: str | None = None
     source: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-

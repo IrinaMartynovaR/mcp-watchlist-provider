@@ -30,6 +30,8 @@ Thumbs.db
 data/*.json
 !data/sources.json
 data/mem0_chroma/
+data/.*.lock
+data/.*.tmp
 
 # Build artifacts
 build/

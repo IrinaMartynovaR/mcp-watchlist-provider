@@ -161,6 +161,36 @@
       "category": "movies",
       "language": "en",
       "url": "https://variety.com/v/film/reviews/feed/"
+    },
+    {
+      "name": "Anime News Network",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://www.animenewsnetwork.com/news/rss.xml"
+    },
+    {
+      "name": "MyAnimeList News",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://myanimelist.net/rss/news.xml"
+    },
+    {
+      "name": "Anime Corner",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://animecorner.me/feed/"
+    },
+    {
+      "name": "Anime Trending",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://www.anitrendz.net/news/feed/"
+    },
+    {
+      "name": "Honey's Anime",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://honeysanime.com/feed/"
     }
   ]
 }

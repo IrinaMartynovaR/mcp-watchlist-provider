@@ -1,11 +1,10 @@
-from functools import lru_cache
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LLMSettings(BaseSettings):
     """Хранит настройки LLM-провайдера и нормализует env-ввод."""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -19,6 +18,7 @@ class LLMSettings(BaseSettings):
     embedding_model: str = Field(default="openai/text-embedding-3-small", alias="LLM_EMBEDDING_MODEL")
     timeout_seconds: float = Field(default=90.0, alias="LLM_TIMEOUT_SECONDS")
     temperature: float = Field(default=0.7, alias="LLM_TEMPERATURE")
+    reasoning_effort: str = Field(default="", alias="LLM_REASONING_EFFORT")
 
     @property
     def normalized_provider(self) -> str:
@@ -45,15 +45,7 @@ class LLMSettings(BaseSettings):
         """Возвращает имя embedding-модели без внешних пробелов."""
         return self.embedding_model.strip()
 
-
-@lru_cache
-def get_llm_settings() -> LLMSettings:
-    """Загружает и кеширует настройки LLM-подсистемы.
-
-    Returns:
-        Актуальные настройки LLM-провайдера.
-    """
-    return LLMSettings()
-
-
-llm_settings = get_llm_settings()
+    @property
+    def normalized_reasoning_effort(self) -> str:
+        """Возвращает нормализованный уровень reasoning-усилия."""
+        return self.reasoning_effort.strip().lower()

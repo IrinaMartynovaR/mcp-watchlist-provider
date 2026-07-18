@@ -15,11 +15,15 @@ MVP-сервис рекомендаций по играм, фильмам и с�
 Код сервиса лежит в `src`:
 
 - `app` - backend/runtime: Telegram bot, logging и backend settings.
-- `domain` - доменные модели и локальное JSON-хранилище.
+- `domain` - доменные модели, repositories и локальное атомарное JSON-хранилище с межпроцессными блокировками.
 - `llm_core` - нейтральный LLM-слой: settings, client factory, provider adapters и prompts.
 - `mcp_server` - MCP server entrypoint.
 - `mcp_tools` - runtime MCP tools и recommendation pipeline.
 - `rss_feeds` - RSS fetch слой и RSS settings.
+
+Runtime-настройки собираются один раз в `RuntimeConfig` внутри entrypoint. `WatchQuestApplication`
+служит composition root: создаёт LLM, memory и recommendation services и передаёт зависимости явно,
+без module-level singleton settings и monkeypatch глобального состояния в тестах.
 
 Текущая observability-модель:
 

@@ -1,34 +1,34 @@
-from typing import Any
+from pathlib import Path
 
-import httpx
 import pytest
 
-from mcp_tools.settings import tool_settings
-
-
-@pytest.fixture(autouse=True)
-def disable_llm_classifier(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Отключает LLM-классификатор по умолчанию во всех тестах.
-
-    Настройки читаются из локального `.env`, где классификатор может быть
-    включён — без этого refresh-тесты пытались бы ходить в сеть. Тесты
-    классификатора включают его обратно собственной фикстурой.
-    """
-    monkeypatch.setattr(tool_settings, "classifier_enabled", False)
+from app.config import RuntimeConfig
+from app.settings import BackendSettings
+from llm_core.settings import LLMSettings
+from mcp_tools.settings import ToolSettings
+from myshows_client.settings import MyShowsSettings
+from rss_feeds.settings import RSSSettings
 
 
 @pytest.fixture()
-def poison_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Запрещает сетевые вызовы httpx: любой POST падает с AssertionError.
+def runtime_config(tmp_path: Path) -> RuntimeConfig:
+    """Создаёт изолированный config без сетевых feature flags.
+
+    Args:
+        tmp_path: Временная директория pytest.
 
     Returns:
-        Список зафиксированных попыток вызова — в тестах проверяется, что он пуст.
+        RuntimeConfig для одного теста.
     """
-    calls: list[str] = []
-
-    def poisoned_post(*args: Any, **kwargs: Any) -> httpx.Response:
-        calls.append("post")
-        raise AssertionError("Unexpected network I/O")
-
-    monkeypatch.setattr(httpx.Client, "post", poisoned_post)
-    return calls
+    return RuntimeConfig(
+        backend=BackendSettings(WATCHQUEST_DATA_DIR=tmp_path),
+        llm=LLMSettings(LLM_API_KEY=""),
+        tools=ToolSettings(
+            TOOLS_CLASSIFIER_ENABLED=False,
+            TOOLS_RAG_ENABLED=False,
+            TOOLS_HYDE_ENABLED=False,
+            TOOLS_MEMORY_ENABLED=False,
+        ),
+        rss=RSSSettings(),
+        myshows=MyShowsSettings(MYSHOWS_LOGIN="", MYSHOWS_PASSWORD=""),
+    )

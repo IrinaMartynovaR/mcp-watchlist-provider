@@ -1,10 +1,11 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
 
+from app.config import RuntimeConfig
 from domain.models import FeedbackAction, RecommendationFeedback
 from mcp_tools import memory
-from mcp_tools.settings import tool_settings
 
 
 class FakeMemoryClient:
@@ -63,57 +64,50 @@ def _feedback(action: FeedbackAction = "like") -> RecommendationFeedback:
     )
 
 
-def _forbidden_client() -> Any:
-    raise AssertionError("Mem0 client must not be created when memory is disabled")
+def _with_memory(config: RuntimeConfig, enabled: bool) -> RuntimeConfig:
+    return replace(config, tools=config.tools.model_copy(update={"memory_enabled": enabled}))
 
 
-def test_record_preference_note_adds_memory_with_signed_weight(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_record_preference_note_adds_memory_with_signed_weight(runtime_config: RuntimeConfig) -> None:
     fake = FakeMemoryClient()
-    monkeypatch.setattr(tool_settings, "memory_enabled", True)
-    monkeypatch.setattr(memory, "_get_memory_client", lambda: fake)
+    config = _with_memory(runtime_config, True)
+    service = memory.MemoryService(config, client=fake)
 
-    memory.record_preference_note_data(feedback=_feedback("block_similar"), candidate=dict(SPACE_CANDIDATE))
+    service.record_preference(_feedback("block_similar"), dict(SPACE_CANDIDATE))
 
     assert len(fake.add_calls) == 1
     call = fake.add_calls[0]
     assert "Space Odyssey" in call["messages"]
-    assert call["user_id"] == tool_settings.mem0_user_id
+    assert call["user_id"] == config.tools.mem0_user_id
     assert call["metadata"]["weight"] == -3
     assert call["metadata"]["category"] == "games"
     assert call["metadata"]["action"] == "block_similar"
 
 
-def test_record_preference_note_disabled_never_touches_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tool_settings, "memory_enabled", False)
-    monkeypatch.setattr(memory, "_get_memory_client", _forbidden_client)
-
-    memory.record_preference_note_data(feedback=_feedback("like"), candidate=dict(SPACE_CANDIDATE))
+def test_record_preference_note_disabled_never_touches_client(runtime_config: RuntimeConfig) -> None:
+    service = memory.MemoryService(_with_memory(runtime_config, False), client=BrokenMemoryClient())
+    service.record_preference(_feedback("like"), dict(SPACE_CANDIDATE))
 
 
-def test_record_preference_note_swallows_add_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tool_settings, "memory_enabled", True)
-    monkeypatch.setattr(memory, "_get_memory_client", lambda: BrokenMemoryClient())
-
-    memory.record_preference_note_data(feedback=_feedback("like"), candidate=dict(SPACE_CANDIDATE))
+def test_record_preference_note_swallows_add_failure(runtime_config: RuntimeConfig) -> None:
+    service = memory.MemoryService(_with_memory(runtime_config, True), client=BrokenMemoryClient())
+    service.record_preference(_feedback("like"), dict(SPACE_CANDIDATE))
 
 
-def test_semantic_memory_scores_disabled_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tool_settings, "memory_enabled", False)
-    monkeypatch.setattr(memory, "_get_memory_client", _forbidden_client)
-
-    assert memory.semantic_memory_scores_data(candidates=[dict(SPACE_CANDIDATE)], top_k=5) == {}
+def test_semantic_memory_scores_disabled_returns_empty(runtime_config: RuntimeConfig) -> None:
+    service = memory.MemoryService(_with_memory(runtime_config, False), client=BrokenMemoryClient())
+    assert service.semantic_scores(candidates=[dict(SPACE_CANDIDATE)], top_k=5) == {}
 
 
-def test_semantic_memory_scores_empty_without_memories(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_semantic_memory_scores_empty_without_memories(runtime_config: RuntimeConfig) -> None:
     fake = FakeMemoryClient(search_results={})
-    monkeypatch.setattr(tool_settings, "memory_enabled", True)
-    monkeypatch.setattr(memory, "_get_memory_client", lambda: fake)
+    service = memory.MemoryService(_with_memory(runtime_config, True), client=fake)
 
-    assert memory.semantic_memory_scores_data(candidates=[dict(SPACE_CANDIDATE)], top_k=5) == {}
+    assert service.semantic_scores(candidates=[dict(SPACE_CANDIDATE)], top_k=5) == {}
     assert len(fake.search_calls) == 1
 
 
-def test_semantic_memory_scores_blend_signed_weights(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_semantic_memory_scores_blend_signed_weights(runtime_config: RuntimeConfig) -> None:
     fake = FakeMemoryClient(
         search_results={
             "space": [
@@ -125,10 +119,10 @@ def test_semantic_memory_scores_blend_signed_weights(monkeypatch: pytest.MonkeyP
             ],
         }
     )
-    monkeypatch.setattr(tool_settings, "memory_enabled", True)
-    monkeypatch.setattr(memory, "_get_memory_client", lambda: fake)
+    config = _with_memory(runtime_config, True)
+    service = memory.MemoryService(config, client=fake)
 
-    scores = memory.semantic_memory_scores_data(
+    scores = service.semantic_scores(
         candidates=[dict(SPACE_CANDIDATE), dict(FARM_CANDIDATE)],
         top_k=5,
     )
@@ -138,11 +132,9 @@ def test_semantic_memory_scores_blend_signed_weights(monkeypatch: pytest.MonkeyP
     assert scores["url:https://example.com/farm"] == pytest.approx(0.8 * -3)
     assert scores["url:https://example.com/farm"] < 0
     assert all(call["limit"] == 5 for call in fake.search_calls)
-    assert all(call["user_id"] == tool_settings.mem0_user_id for call in fake.search_calls)
+    assert all(call["user_id"] == config.tools.mem0_user_id for call in fake.search_calls)
 
 
-def test_semantic_memory_scores_swallow_search_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(tool_settings, "memory_enabled", True)
-    monkeypatch.setattr(memory, "_get_memory_client", lambda: BrokenMemoryClient())
-
-    assert memory.semantic_memory_scores_data(candidates=[dict(SPACE_CANDIDATE)], top_k=5) == {}
+def test_semantic_memory_scores_swallow_search_failure(runtime_config: RuntimeConfig) -> None:
+    service = memory.MemoryService(_with_memory(runtime_config, True), client=BrokenMemoryClient())
+    assert service.semantic_scores(candidates=[dict(SPACE_CANDIDATE)], top_k=5) == {}

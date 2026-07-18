@@ -11,15 +11,18 @@ logger = logging.getLogger(__name__)
 
 class OpenRouterChatRequest(TypedDict):
     """Описывает payload chat-completions запроса к OpenRouter."""
+
     model: str
     messages: list[ChatMessage]
     temperature: float
     stream: bool
     max_tokens: NotRequired[int]
+    reasoning: NotRequired[dict[str, str]]
 
 
 class EmbeddingRequest(TypedDict):
     """Описывает payload embeddings-запроса к OpenRouter."""
+
     model: str
     input: list[str]
 
@@ -27,12 +30,14 @@ class EmbeddingRequest(TypedDict):
 @dataclass(frozen=True)
 class OpenRouterSettings:
     """Хранит провайдерные настройки OpenRouter-клиента."""
+
     api_key: str
     base_url: str = "https://openrouter.ai/api/v1"
     model: str = "openai/gpt-4o-mini"
     embedding_model: str = ""
     timeout_seconds: float = 90.0
     temperature: float = 0.2
+    reasoning_effort: str = ""
     http_referer: str = ""
     x_title: str = ""
 
@@ -40,15 +45,23 @@ class OpenRouterSettings:
 class OpenRouterClient:
     """Реализует текстовый и embedding-клиент для OpenRouter API."""
 
-    def __init__(self, settings: OpenRouterSettings) -> None:
+    def __init__(self, settings: OpenRouterSettings, transport: httpx.BaseTransport | None = None) -> None:
         """Создаёт клиента с заранее валидированными настройками.
 
         Args:
             settings: Конфигурация доступа к OpenRouter API.
+            transport: Необязательный HTTP transport для тестов и специальных runtime-сценариев.
         """
         self.settings = settings
+        self.transport = transport
 
-    def chat(self, messages: list[ChatMessage], max_tokens: int = 1500, model: str | None = None) -> str:
+    def chat(
+        self,
+        messages: list[ChatMessage],
+        max_tokens: int = 1500,
+        model: str | None = None,
+        reasoning_effort: str | None = None,
+    ) -> str:
         """Отправляет chat-completions запрос в OpenRouter.
 
         Args:
@@ -56,6 +69,9 @@ class OpenRouterClient:
             max_tokens: Максимальная длина ответа.
             model: Необязательная модель вместо дефолтной из настроек —
                 для служебных задач на более дешёвой модели.
+            reasoning_effort: None — использовать значение из настроек;
+                пустая строка — явно отключить reasoning для этого вызова
+                (нужно служебным вызовам на моделях без reasoning).
 
         Returns:
             Финальный текст ответа модели.
@@ -76,12 +92,21 @@ class OpenRouterClient:
             "stream": False,
             "max_tokens": max_tokens,
         }
+        effective_reasoning = self.settings.reasoning_effort if reasoning_effort is None else reasoning_effort
+        if effective_reasoning:
+            # Для reasoning-моделей (gpt-5-*) без ограничения усилия внутреннее
+            # размышление съедает max_tokens и ответ приходит пустым.
+            payload["reasoning"] = {"effort": effective_reasoning}
         logger.info(
             "LLM chat request started",
             extra={"provider": "openrouter", "model": chat_model, "message_count": len(messages)},
         )
 
-        with httpx.Client(timeout=self.settings.timeout_seconds, headers=self._headers()) as client:
+        with httpx.Client(
+            timeout=self.settings.timeout_seconds,
+            headers=self._headers(),
+            transport=self.transport,
+        ) as client:
             data = _post_json(
                 client,
                 f"{self.settings.base_url}/chat/completions",
@@ -125,7 +150,11 @@ class OpenRouterClient:
             extra={"provider": "openrouter", "model": self.settings.embedding_model, "text_count": len(texts)},
         )
 
-        with httpx.Client(timeout=self.settings.timeout_seconds, headers=self._headers()) as client:
+        with httpx.Client(
+            timeout=self.settings.timeout_seconds,
+            headers=self._headers(),
+            transport=self.transport,
+        ) as client:
             data = _post_json(
                 client,
                 f"{self.settings.base_url}/embeddings",

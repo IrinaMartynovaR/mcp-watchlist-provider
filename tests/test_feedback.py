@@ -4,9 +4,8 @@ from typing import Any
 
 import pytest
 
-from app.settings import BackendSettings
-from mcp_tools import feedback, media, memory
-from mcp_tools.settings import tool_settings
+from app.config import RuntimeConfig
+from mcp_tools import feedback, memory
 
 
 class RecordingMemoryClient:
@@ -20,16 +19,20 @@ class RecordingMemoryClient:
         return {"results": []}
 
 
-def test_feedback_updates_profile_preferences(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_feedback_updates_profile_preferences(tmp_path: Path, runtime_config: RuntimeConfig) -> None:
     profile_file = tmp_path / "profile.json"
-    backend_settings = BackendSettings(WATCHQUEST_DATA_DIR=tmp_path)
     fake_memory = RecordingMemoryClient()
-
-    monkeypatch.setattr(feedback, "backend_settings", backend_settings)
-    monkeypatch.setattr(tool_settings, "memory_enabled", True)
-    monkeypatch.setattr(memory, "_get_memory_client", lambda: fake_memory)
+    config = RuntimeConfig(
+        backend=runtime_config.backend,
+        llm=runtime_config.llm,
+        tools=runtime_config.tools.model_copy(update={"memory_enabled": True}),
+        rss=runtime_config.rss,
+        myshows=runtime_config.myshows,
+    )
+    memory_service = memory.MemoryService(config, client=fake_memory)
 
     feedback.save_recommendation_result(
+        config,
         {
             "id": "rec-1",
             "query": "посоветуй комедию",
@@ -44,10 +47,10 @@ def test_feedback_updates_profile_preferences(tmp_path: Path, monkeypatch: pytes
             "recommendation": "Try Light Movie.",
             "model": "test-model",
             "provider": "test-provider",
-        }
+        },
     )
 
-    result = feedback.apply_recommendation_feedback("rec-1", "like")
+    result = feedback.apply_recommendation_feedback(config, "rec-1", "like", memory_service.record_preference)
 
     assert result["action"] == "like"
     assert result["title"] == "Light Movie"
@@ -64,17 +67,20 @@ def test_feedback_updates_profile_preferences(tmp_path: Path, monkeypatch: pytes
     assert "Light Movie" in add_call["messages"]
 
 
-def test_watchlist_feedback_adds_top_candidate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_watchlist_feedback_adds_top_candidate(tmp_path: Path, runtime_config: RuntimeConfig) -> None:
     watchlist_file = tmp_path / "watchlist.json"
-    backend_settings = BackendSettings(WATCHQUEST_DATA_DIR=tmp_path)
     fake_memory = RecordingMemoryClient()
-
-    monkeypatch.setattr(feedback, "backend_settings", backend_settings)
-    monkeypatch.setattr(media, "backend_settings", backend_settings)
-    monkeypatch.setattr(tool_settings, "memory_enabled", True)
-    monkeypatch.setattr(memory, "_get_memory_client", lambda: fake_memory)
+    config = RuntimeConfig(
+        backend=runtime_config.backend,
+        llm=runtime_config.llm,
+        tools=runtime_config.tools.model_copy(update={"memory_enabled": True}),
+        rss=runtime_config.rss,
+        myshows=runtime_config.myshows,
+    )
+    memory_service = memory.MemoryService(config, client=fake_memory)
 
     feedback.save_recommendation_result(
+        config,
         {
             "id": "rec-2",
             "query": "посоветуй фильм",
@@ -89,10 +95,10 @@ def test_watchlist_feedback_adds_top_candidate(tmp_path: Path, monkeypatch: pyte
             "recommendation": "Try Movie Candidate.",
             "model": "test-model",
             "provider": "test-provider",
-        }
+        },
     )
 
-    result = feedback.apply_recommendation_feedback("rec-2", "watchlist")
+    result = feedback.apply_recommendation_feedback(config, "rec-2", "watchlist", memory_service.record_preference)
 
     assert result["watchlist_item"]["title"] == "Movie Candidate"
     assert result["watchlist_item"]["type"] == "movie"
@@ -104,8 +110,6 @@ def test_watchlist_feedback_adds_top_candidate(tmp_path: Path, monkeypatch: pyte
     assert fake_memory.add_calls[0]["metadata"]["weight"] == 2
 
 
-def test_feedback_rejects_unknown_recommendation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(feedback, "backend_settings", BackendSettings(WATCHQUEST_DATA_DIR=tmp_path))
-
+def test_feedback_rejects_unknown_recommendation(runtime_config: RuntimeConfig) -> None:
     with pytest.raises(ValueError, match="Recommendation not found"):
-        feedback.apply_recommendation_feedback("missing", "like")
+        feedback.apply_recommendation_feedback(runtime_config, "missing", "like", lambda *_: None)

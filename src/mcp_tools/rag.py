@@ -1,31 +1,35 @@
 import logging
 import math
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.vectorstores import InMemoryVectorStore
 from langfuse import observe
 
+from app.config import RuntimeConfig
 from domain.models import Category, category_matches
-from llm_core.embeddings import create_embeddings
-from llm_core.prompts.recommendations import HYDE_SYSTEM_PROMPT, build_hyde_prompt
-from mcp_tools.llm import ask_llm_data
-from mcp_tools.media import candidate_key, search_cached_items_data
-from mcp_tools.settings import tool_settings
+from llm_core.prompts.recommendations import build_hyde_prompt
+from mcp_tools.media import candidate_key
+from mcp_tools.query_analysis import item_matches_medium
 
 logger = logging.getLogger(__name__)
 
-_EXACT_CATEGORY_BONUS = 0.05
-# Обзоры конкретных тайтлов — лучший материал для рекомендации, шум
-# (скидки/промо) не должен доходить до LLM даже при высокой similarity.
-_KIND_SCORE_ADJUSTMENTS = {"review": 0.05, "noise": -0.2}
+CachedSearch = Callable[..., list[dict[str, Any]]]
+AskLLM = Callable[..., dict[str, Any]]
 
 
 @observe(name="semantic_search", as_type="tool")
 def semantic_search_data(
     query: str,
+    config: RuntimeConfig,
+    search_cached: CachedSearch,
+    embeddings: Embeddings,
+    ask_llm: AskLLM,
     category: Category = "all",
-    limit: int = tool_settings.recommendation_limit,
+    limit: int | None = None,
+    medium: str | None = None,
 ) -> list[dict[str, Any]]:
     """Ищет RSS-кандидатов семантически через embedding-похожесть.
 
@@ -35,24 +39,34 @@ def semantic_search_data(
 
     Args:
         query: Пользовательский запрос.
+        config: Runtime-настройки приложения.
+        search_cached: Инъецируемый поиск по RSS-кешу.
+        embeddings: Настроенный embedding-адаптер.
+        ask_llm: Инъецируемая функция LLM-вызова.
         category: Категория поиска.
         limit: Максимальное число кандидатов.
+        medium: Медиум, явно названный в запросе (из `analyze_query_data`).
 
     Returns:
         Семантически близкие RSS-кандидаты либо пустой список,
         если фича выключена, запрос пустой, пул пуст или произошла ошибка.
     """
-    if not tool_settings.rag_enabled:
+    tools = config.tools
+    result_limit = limit if limit is not None else tools.recommendation_limit
+    if not tools.rag_enabled:
         return []
     if not query.strip():
         return []
 
     try:
-        pool = search_cached_items_data(
+        # Пул не зависит от result_limit: семантический поиск должен видеть
+        # весь свежий кеш, иначе при limit=5 искалось бы лишь по 15 новейшим
+        # записям из сотен. Эмбеддинги кешируются, поэтому широкий пул дёшев.
+        pool = search_cached(
             query="",
             category=category,
-            days=tool_settings.cache_search_days,
-            limit=limit * tool_settings.recommendation_fallback_candidate_multiplier,
+            days=tools.cache_search_days,
+            limit=max(tools.rag_pool_limit, result_limit * tools.recommendation_fallback_candidate_multiplier),
         )
         if not pool:
             return []
@@ -68,21 +82,33 @@ def semantic_search_data(
             texts.append(candidate_text(item))
             metadatas.append({"candidate_key": key})
 
-        store = InMemoryVectorStore(create_embeddings())
+        store = InMemoryVectorStore(embeddings)
         store.add_texts(texts, metadatas=metadatas)
         scored_documents = store.similarity_search_with_score(query, k=len(texts))
-        scored_by_key = _score_documents(scored_documents, items_by_key, category)
+        scored_by_key = _score_documents(scored_documents, items_by_key, category, config, medium)
 
-        if tool_settings.hyde_enabled:
-            hyde_text = _generate_hyde_document(query, category)
+        if tools.hyde_enabled:
+            hyde_text = _generate_hyde_document(query, category, config, ask_llm)
             if hyde_text is not None:
                 hyde_documents = store.similarity_search_with_score(hyde_text, k=len(texts))
-                for key, (item, score) in _score_documents(hyde_documents, items_by_key, category).items():
+                for key, (item, score) in _score_documents(
+                    hyde_documents, items_by_key, category, config, medium
+                ).items():
                     if key not in scored_by_key or score > scored_by_key[key][1]:
                         scored_by_key[key] = (item, score)
 
         scored_candidates = sorted(scored_by_key.values(), key=lambda pair: pair[1], reverse=True)
-        results = _diversify_by_source([item for item, _ in scored_candidates], limit=limit)
+        # semantic_score остаётся в кандидате: последующее персональное
+        # ранжирование пересортирует список по вкусовым весам, и это поле —
+        # единственный след близости кандидата к самому запросу (его видит LLM).
+        # query_match_medium дополнительно бустится в персональном ранжировании.
+        ranked_items = []
+        for item, score in scored_candidates:
+            enriched = {**item, "semantic_score": round(score, 4)}
+            if medium and item_matches_medium(item, medium):
+                enriched["query_match_medium"] = medium
+            ranked_items.append(enriched)
+        results = _diversify_by_source(ranked_items, limit=result_limit)
         logger.info(
             "Semantic search completed",
             extra={"query": query, "category": category, "result_count": len(results), "pool_size": len(pool)},
@@ -97,7 +123,12 @@ def semantic_search_data(
         return []
 
 
-def _generate_hyde_document(query: str, category: Category) -> str | None:
+def _generate_hyde_document(
+    query: str,
+    category: Category,
+    config: RuntimeConfig,
+    ask_llm: AskLLM,
+) -> str | None:
     """Генерирует гипотетический документ для cross-lingual semantic match.
 
     Fail-soft: любая ошибка LLM-генерации логируется и возвращает None,
@@ -106,12 +137,19 @@ def _generate_hyde_document(query: str, category: Category) -> str | None:
     Args:
         query: Пользовательский запрос.
         category: Категория поиска.
+        config: Runtime-настройки приложения.
+        ask_llm: Инъецируемая функция LLM-вызова.
 
     Returns:
         Текст гипотетического документа либо None при сбое генерации.
     """
     try:
-        return str(ask_llm_data(build_hyde_prompt(query, category), system=HYDE_SYSTEM_PROMPT)["response"])
+        return str(
+            ask_llm(
+                build_hyde_prompt(query, category),
+                system=config.prompts.hyde_system,
+            )["response"]
+        )
     except Exception:
         logger.warning(
             "HyDE document generation failed; falling back to raw query embedding",
@@ -125,16 +163,21 @@ def _score_documents(
     scored_documents: list[tuple[Document, float]],
     items_by_key: dict[str, dict[str, Any]],
     category: Category,
+    config: RuntimeConfig,
+    medium: str | None = None,
 ) -> dict[str, tuple[dict[str, Any], float]]:
     """Сопоставляет scored-документы с кандидатами и применяет бонусы.
 
-    Помимо exact-category бонуса к similarity-score добавляется поправка
-    за тип записи (`kind`): бонус обзорам, штраф шуму (скидки/промо).
+    Помимо exact-category бонуса к similarity-score добавляются поправка
+    за тип записи (`kind`: бонус обзорам, штраф шуму) и бонус за совпадение
+    с явно названным в запросе медиумом.
 
     Args:
         scored_documents: Пары (документ, score) из similarity search.
         items_by_key: Кандидаты пула, индексированные по candidate_key.
         category: Категория поиска для exact-match бонуса.
+        config: Runtime-настройки scoring.
+        medium: Медиум, явно названный в запросе, либо None.
 
     Returns:
         Словарь candidate_key -> (кандидат, score с учётом бонусов).
@@ -145,10 +188,16 @@ def _score_documents(
         matched = items_by_key.get(key)
         if matched is None:
             continue
-        adjusted = score + _KIND_SCORE_ADJUSTMENTS.get(str(matched.get("kind") or ""), 0.0)
+        kind_adjustments = {
+            "review": config.tools.rag_review_score_bonus,
+            "noise": config.tools.rag_noise_score_penalty,
+        }
+        adjusted = score + kind_adjustments.get(str(matched.get("kind") or ""), 0.0)
         item_category = str(matched.get("category") or "")
         if category != "all" and item_category != "mixed" and category_matches(item_category, category):
-            adjusted += _EXACT_CATEGORY_BONUS
+            adjusted += config.tools.rag_exact_category_bonus
+        if medium and item_matches_medium(matched, medium):
+            adjusted += config.tools.rag_medium_match_bonus
         scored_by_key[key] = (matched, adjusted)
     return scored_by_key
 
