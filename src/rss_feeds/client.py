@@ -1,4 +1,6 @@
+import html
 import logging
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -8,14 +10,18 @@ import feedparser
 import httpx
 
 from domain.models import FeedItem, Source
-from rss_feeds.settings import rss_settings
+from rss_feeds.classify import classify_item_kind
+from rss_feeds.settings import RSSSettings
 
 logger = logging.getLogger(__name__)
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
 @dataclass(frozen=True)
 class RSSFetchResult:
     """Хранит результат чтения одного RSS-источника."""
+
     source: Source
     url: str
     ok: bool
@@ -46,6 +52,25 @@ def _parse_date(entry: Any) -> datetime:
         return datetime.now(UTC)
 
 
+def _clean_summary(raw: str, max_chars: int) -> str:
+    """Очищает RSS-аннотацию от HTML для кеша, эмбеддингов и prompt.
+
+    Сырые RSS-summary часто содержат вёрстку (картинки, ссылки, трекеры) —
+    она замусоривает embedding-текст и раздувает LLM-prompt.
+
+    Args:
+        raw: Сырая аннотация RSS-entry.
+        max_chars: Максимальная длина очищенного текста.
+
+    Returns:
+        Плоский текст без тегов, с нормализованными пробелами,
+        обрезанный до разумной длины.
+    """
+    text = html.unescape(_HTML_TAG_RE.sub(" ", raw))
+    text = " ".join(text.split())
+    return text[:max_chars]
+
+
 def _entry_tags(entry: Any) -> list[str]:
     """Извлекает непустые теги RSS-entry.
 
@@ -63,13 +88,14 @@ def _entry_tags(entry: Any) -> list[str]:
     return tags
 
 
-def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
+def _parse_items(parsed: Any, source: Source, limit: int, settings: RSSSettings) -> list[FeedItem]:
     """Нормализует записи feedparser в доменные RSS-элементы.
 
     Args:
         parsed: Результат `feedparser.parse`.
         source: Исходный RSS-источник.
         limit: Максимальное число записей для разбора.
+        settings: Настройки нормализации RSS.
 
     Returns:
         Валидированные элементы RSS-кеша.
@@ -79,11 +105,15 @@ def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
     for entry in parsed.entries[:limit]:
         title = getattr(entry, "title", "").strip()
         link = getattr(entry, "link", "").strip()
-        summary = getattr(entry, "summary", "") or getattr(entry, "description", "") or ""
+        summary = _clean_summary(
+            getattr(entry, "summary", "") or getattr(entry, "description", "") or "",
+            settings.rss_summary_max_chars,
+        )
 
         if not title or not link:
             continue
 
+        tags = _entry_tags(entry)
         items.append(
             FeedItem(
                 title=title,
@@ -91,9 +121,10 @@ def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
                 source=source.name,
                 source_language=source.language,
                 category=source.category,
+                kind=classify_item_kind(title, url=link, summary=summary, tags=tags),
                 summary=summary,
                 published_at=_parse_date(entry),
-                tags=_entry_tags(entry),
+                tags=tags,
             )
         )
 
@@ -102,36 +133,40 @@ def _parse_items(parsed: Any, source: Source, limit: int) -> list[FeedItem]:
 
 def fetch_rss_source_result(
     source: Source,
-    limit: int = rss_settings.rss_fetch_item_limit,
-    timeout: float = rss_settings.rss_fetch_timeout_seconds,
+    settings: RSSSettings,
+    limit: int | None = None,
+    timeout: float | None = None,
 ) -> RSSFetchResult:
     """Загружает RSS-источник и возвращает диагностику результата.
 
     Args:
         source: Описанный в конфиге RSS-источник.
+        settings: Настройки RSS-клиента.
         limit: Максимальное число записей для разбора.
         timeout: Таймаут HTTP-запроса в секундах.
 
     Returns:
         Структуру с элементами, статусом, ошибкой и HTTP-кодом.
     """
+    item_limit = limit if limit is not None else settings.rss_fetch_item_limit
+    request_timeout = timeout if timeout is not None else settings.rss_fetch_timeout_seconds
     url = str(source.url)
     logger.info(
         "Fetching RSS source",
-        extra={"source": source.name, "category": source.category, "url": url, "limit": limit},
+        extra={"source": source.name, "category": source.category, "url": url, "limit": item_limit},
     )
 
     try:
         with httpx.Client(
             follow_redirects=True,
-            headers={"User-Agent": rss_settings.normalized_rss_user_agent},
-            timeout=timeout,
+            headers={"User-Agent": settings.normalized_rss_user_agent},
+            timeout=request_timeout,
         ) as client:
             response = client.get(url)
             response.raise_for_status()
 
         parsed = feedparser.parse(response.content)
-        items = _parse_items(parsed, source=source, limit=limit)
+        items = _parse_items(parsed, source=source, limit=item_limit, settings=settings)
         bozo_exception = getattr(parsed, "bozo_exception", None)
         error = str(bozo_exception) if bozo_exception else None
 
@@ -167,4 +202,3 @@ def fetch_rss_source_result(
             items=[],
             error=str(exc),
         )
-

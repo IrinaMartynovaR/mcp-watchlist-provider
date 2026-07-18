@@ -4,11 +4,17 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock ./
-COPY src ./src
-COPY data ./data
+ENV UV_LINK_MODE=copy
 
-RUN uv sync --frozen --no-dev
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
+
+COPY src ./src
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+COPY data ./data
 
 ENV WATCHQUEST_DATA_DIR=/app/data
 ENV PATH="/app/.venv/bin:$PATH"

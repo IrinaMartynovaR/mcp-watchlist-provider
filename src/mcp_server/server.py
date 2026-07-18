@@ -2,6 +2,8 @@ from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from app.application import WatchQuestApplication
+from app.config import RuntimeConfig
 from app.logging_config import configure_logging
 from domain.models import parse_category
 from mcp_tools.media import (
@@ -15,232 +17,224 @@ from mcp_tools.media import (
     update_profile_data,
     validate_sources_data,
 )
-from mcp_tools.recommendation import recommend_media_data
-from mcp_tools.settings import tool_settings
-
-mcp = FastMCP("watchquest")
 
 
-@mcp.tool()
-def get_profile() -> dict[str, Any]:
-    """Возвращает профиль медиапредпочтений пользователя.
-
-    Returns:
-        Профиль с предпочтениями, антипредпочтениями, платформами и языковыми настройками.
-    """
-    return get_profile_data()
-
-
-@mcp.tool()
-def update_profile(likes: list[str] | None = None, dislikes: list[str] | None = None) -> dict[str, Any]:
-    """Добавляет новые предпочтения или антипредпочтения в профиль.
+def create_mcp_server(application: WatchQuestApplication) -> FastMCP:
+    """Создаёт MCP-сервер с зависимостями текущего приложения.
 
     Args:
-        likes: Новые предпочтения пользователя.
-        dislikes: Новые антипредпочтения пользователя.
+        application: Собранный composition root WatchQuest.
 
     Returns:
-        Обновлённый профиль пользователя.
+        Настроенный FastMCP server.
     """
-    return update_profile_data(likes=likes, dislikes=dislikes)
+    server = FastMCP("watchquest")
+    config = application.config
 
+    @server.tool()
+    def get_profile() -> dict[str, Any]:
+        """Возвращает профиль медиапредпочтений пользователя."""
+        return get_profile_data(config)
 
-@mcp.tool()
-def list_sources() -> list[dict[str, Any]]:
-    """Возвращает настроенные RSS-источники.
+    @server.tool()
+    def update_profile(likes: list[str] | None = None, dislikes: list[str] | None = None) -> dict[str, Any]:
+        """Добавляет новые предпочтения или антипредпочтения.
 
-    Returns:
-        Список RSS-источников для игр, фильмов, сериалов и смешанного контента.
-    """
-    return list_sources_data()
+        Args:
+            likes: Новые предпочтения пользователя.
+            dislikes: Новые антипредпочтения пользователя.
 
+        Returns:
+            Обновлённый профиль.
+        """
+        return update_profile_data(config, likes=likes, dislikes=dislikes)
 
-@mcp.tool()
-def validate_sources(
-    category: str = "all",
-    limit_per_source: int = tool_settings.source_validation_limit,
-) -> dict[str, Any]:
-    """Проверяет доступность настроенных RSS-источников.
+    @server.tool()
+    def list_sources() -> list[dict[str, Any]]:
+        """Возвращает настроенные RSS-источники."""
+        return list_sources_data(config)
 
-    Args:
-        category: Категория источников: games, movies, series,
-            movies_series, mixed или all.
-        limit_per_source: Максимальное число RSS-записей на источник.
+    @server.tool()
+    def validate_sources(
+        category: str = "all",
+        limit_per_source: int = config.tools.source_validation_limit,
+    ) -> dict[str, Any]:
+        """Проверяет доступность настроенных RSS-источников.
 
-    Returns:
-        Диагностику по каждому источнику и общий статус проверки.
+        Args:
+            category: Категория источников.
+            limit_per_source: Максимальное число записей на источник.
 
-    Raises:
-        ValueError: Если передана неподдерживаемая категория.
-    """
-    return validate_sources_data(category=parse_category(category), limit_per_source=limit_per_source)
+        Returns:
+            Диагностика по каждому источнику.
+        """
+        return validate_sources_data(
+            config,
+            category=parse_category(category),
+            limit_per_source=limit_per_source,
+        )
 
+    @server.tool()
+    def refresh_feeds(
+        category: str = "all",
+        limit_per_source: int = config.tools.feed_refresh_limit,
+    ) -> dict[str, Any]:
+        """Обновляет RSS-кеш.
 
-@mcp.tool()
-def refresh_feeds(
-    category: str = "all",
-    limit_per_source: int = tool_settings.feed_refresh_limit,
-) -> dict[str, Any]:
-    """Обновляет RSS-элементы и записывает локальный кеш.
+        Args:
+            category: Категория источников.
+            limit_per_source: Максимальное число записей на источник.
 
-    Args:
-        category: Категория источников: games, movies, series,
-            movies_series, mixed или all.
-        limit_per_source: Максимальное число RSS-записей на источник.
+        Returns:
+            Сводка обновления, записи и ошибки источников.
+        """
+        return refresh_feeds_data(
+            config,
+            category=parse_category(category),
+            limit_per_source=limit_per_source,
+        )
 
-    Returns:
-        Сводку обновления, список элементов, диагностику источников и ошибки.
+    @server.tool()
+    def search_cached_items(
+        query: str,
+        category: str = "all",
+        days: int = config.tools.cache_search_days,
+        limit: int = config.tools.cache_search_limit,
+    ) -> list[dict[str, Any]]:
+        """Ищет записи в локальном RSS-кеше.
 
-    Raises:
-        ValueError: Если передана неподдерживаемая категория.
-    """
-    return refresh_feeds_data(category=parse_category(category), limit_per_source=limit_per_source)
+        Args:
+            query: Поисковая строка.
+            category: Категория поиска.
+            days: Глубина поиска по давности.
+            limit: Максимальное число результатов.
 
+        Returns:
+            Найденные RSS-записи.
+        """
+        return search_cached_items_data(
+            config,
+            query=query,
+            category=parse_category(category),
+            days=days,
+            limit=limit,
+        )
 
-@mcp.tool()
-def search_cached_items(
-    query: str,
-    category: str = "all",
-    days: int = tool_settings.cache_search_days,
-    limit: int = tool_settings.cache_search_limit,
-) -> list[dict[str, Any]]:
-    """Ищет элементы в недавно обновлённом RSS-кеше.
+    @server.tool()
+    def add_to_watchlist(
+        title: str,
+        media_type: str = "unknown",
+        url: str | None = None,
+        reason: str = "",
+        source: str | None = None,
+    ) -> dict[str, Any]:
+        """Добавляет элемент в watchlist.
 
-    Args:
-        query: Поисковая строка. Для русских запросов можно передавать
-            двуязычные формулировки, если часть источников на английском.
-        category: Категория поиска: games, movies, series,
-            movies_series, mixed или all.
-        days: Глубина поиска по давности публикации.
-        limit: Максимальное число результатов.
+        Args:
+            title: Название элемента.
+            media_type: Тип медиа.
+            url: Ссылка на источник.
+            reason: Причина добавления.
+            source: Название источника.
 
-    Returns:
-        Список найденных RSS-элементов.
+        Returns:
+            Сохранённый watchlist item.
+        """
+        return add_to_watchlist_data(
+            config,
+            title=title,
+            media_type=media_type,
+            url=url,
+            reason=reason,
+            source=source,
+        )
 
-    Raises:
-        ValueError: Если передана неподдерживаемая категория.
-    """
-    return search_cached_items_data(query=query, category=parse_category(category), days=days, limit=limit)
+    @server.tool()
+    def list_watchlist(media_type: str = "all", status: str = "planned") -> list[dict[str, Any]]:
+        """Возвращает отфильтрованный watchlist.
 
+        Args:
+            media_type: Тип медиа или ``all``.
+            status: Статус элемента или ``all``.
 
-@mcp.tool()
-def add_to_watchlist(
-    title: str,
-    media_type: str = "unknown",
-    url: str | None = None,
-    reason: str = "",
-    source: str | None = None,
-) -> dict[str, Any]:
-    """Добавляет элемент в пользовательский watchlist.
+        Returns:
+            Watchlist items.
+        """
+        return list_watchlist_data(config, media_type=media_type, status=status)
 
-    Args:
-        title: Название игры, фильма, сериала или статьи.
-        media_type: Тип медиа: game, movie, series, article или unknown.
-        url: Необязательная ссылка на источник.
-        reason: Причина добавления.
-        source: Название источника рекомендации.
+    @server.tool()
+    def rate_watchlist_item(title: str, rating: int, comment: str = "") -> dict[str, Any]:
+        """Сохраняет оценку watchlist-элемента.
 
-    Returns:
-        Сохранённый watchlist-элемент.
+        Args:
+            title: Название элемента.
+            rating: Оценка от 1 до 10.
+            comment: Пользовательский комментарий.
 
-    Raises:
-        ValueError: Если передан неподдерживаемый тип медиа.
-    """
-    return add_to_watchlist_data(title=title, media_type=media_type, url=url, reason=reason, source=source)
+        Returns:
+            Обновлённый watchlist item.
+        """
+        return rate_watchlist_item_data(config, title=title, rating=rating, comment=comment)
 
+    @server.tool()
+    def recommend_media(
+        query: str,
+        category: str = "all",
+        refresh: bool = True,
+        limit: int = config.tools.recommendation_limit,
+        limit_per_source: int = config.tools.recommendation_source_limit,
+    ) -> dict[str, Any]:
+        """Собирает рекомендацию через RSS, память и LLM.
 
-@mcp.tool()
-def list_watchlist(media_type: str = "all", status: str = "planned") -> list[dict[str, Any]]:
-    """Возвращает элементы пользовательского watchlist.
+        Args:
+            query: Пользовательский запрос.
+            category: Категория поиска.
+            refresh: Нужно ли обновить RSS-кеш.
+            limit: Максимальное число кандидатов.
+            limit_per_source: Лимит записей на источник.
 
-    Args:
-        media_type: Тип медиа для фильтрации или all.
-        status: Статус элемента для фильтрации или all.
+        Returns:
+            Рекомендация, кандидаты и диагностика pipeline.
+        """
+        return application.recommendation.recommend(
+            query=query,
+            category=parse_category(category),
+            refresh=refresh,
+            limit=limit,
+            limit_per_source=limit_per_source,
+        )
 
-    Returns:
-        Отфильтрованный список watchlist-элементов.
-    """
-    return list_watchlist_data(media_type=media_type, status=status)
+    @server.tool()
+    def import_myshows_history(dry_run: bool = True) -> dict[str, Any]:
+        """Импортирует историю MyShows в графовую память.
 
+        Args:
+            dry_run: Если True, только рассчитывает сводку.
 
-@mcp.tool()
-def rate_watchlist_item(title: str, rating: int, comment: str = "") -> dict[str, Any]:
-    """Сохраняет оценку и комментарий для watchlist-элемента.
+        Returns:
+            Сводка импорта.
+        """
+        return application.import_myshows_history(dry_run=dry_run)
 
-    Args:
-        title: Название элемента для поиска.
-        rating: Оценка пользователя от 1 до 10.
-        comment: Необязательный комментарий.
+    @server.resource("watchquest://profile")
+    def profile_resource() -> str:
+        """Возвращает профиль как MCP resource."""
+        return str(get_profile_data(config))
 
-    Returns:
-        Обновлённый watchlist-элемент.
+    @server.resource("watchquest://watchlist")
+    def watchlist_resource() -> str:
+        """Возвращает watchlist как MCP resource."""
+        return str(list_watchlist_data(config, media_type="all", status="all"))
 
-    Raises:
-        ValueError: Если элемент с таким названием не найден.
-    """
-    return rate_watchlist_item_data(title=title, rating=rating, comment=comment)
-
-
-@mcp.tool()
-def recommend_media(
-    query: str,
-    category: str = "all",
-    refresh: bool = True,
-    limit: int = tool_settings.recommendation_limit,
-    limit_per_source: int = tool_settings.recommendation_source_limit,
-) -> dict[str, Any]:
-    """Собирает практическую рекомендацию через RSS-кандидатов и LLM.
-
-    Args:
-        query: Пользовательский запрос.
-        category: Категория поиска: games, movies, series,
-            movies_series, mixed или all.
-        refresh: Нужно ли обновить RSS-кеш перед поиском кандидатов.
-        limit: Максимальное число кандидатов для LLM.
-        limit_per_source: Максимальное число RSS-записей на источник.
-
-    Returns:
-        Результат рекомендации с кандидатами, LLM-ответом и диагностикой использованных инструментов.
-
-    Raises:
-        ValueError: Если передана неподдерживаемая категория.
-    """
-    return recommend_media_data(
-        query=query,
-        category=parse_category(category),
-        refresh=refresh,
-        limit=limit,
-        limit_per_source=limit_per_source,
-    )
-
-
-@mcp.resource("watchquest://profile")
-def profile_resource() -> str:
-    """Возвращает профиль пользователя как MCP resource.
-
-    Returns:
-        Строковое представление профиля пользователя.
-    """
-    profile = get_profile_data()
-    return str(profile)
-
-
-@mcp.resource("watchquest://watchlist")
-def watchlist_resource() -> str:
-    """Возвращает watchlist пользователя как MCP resource.
-
-    Returns:
-        Строковое представление полного watchlist.
-    """
-    return str(list_watchlist_data(media_type="all", status="all"))
+    return server
 
 
 def main() -> None:
-    """Запускает MCP-сервер WatchQuest."""
-    configure_logging()
-    mcp.run()
+    """Собирает зависимости и запускает MCP-сервер WatchQuest."""
+    config = RuntimeConfig.from_env()
+    configure_logging(config.backend, stream="stderr")
+    create_mcp_server(WatchQuestApplication(config)).run()
 
 
 if __name__ == "__main__":
     main()
-

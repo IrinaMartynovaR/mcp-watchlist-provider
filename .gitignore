@@ -17,6 +17,7 @@ htmlcov/
 # IDE
 .idea/
 .vscode/
+.cl*/
 
 # OS
 .DS_Store
@@ -28,6 +29,9 @@ Thumbs.db
 # Runtime state
 data/*.json
 !data/sources.json
+data/mem0_chroma/
+data/.*.lock
+data/.*.tmp
 
 # Build artifacts
 build/

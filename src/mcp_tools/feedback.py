@@ -1,35 +1,36 @@
 import logging
+from collections.abc import Callable
 from typing import Any
 
-from app.settings import backend_settings
+from app.config import RuntimeConfig
 from domain.models import (
     Category,
     RecommendationFeedback,
     RecommendationRecord,
     parse_feedback_action,
 )
-from domain.storage.json_store import read_json, write_json
+from domain.repositories.feedback import FeedbackRepository
+from domain.repositories.profile import ProfileRepository
+from domain.repositories.recommendations import RecommendationRepository
 from mcp_tools.media import add_to_watchlist_data
-from mcp_tools.settings import tool_settings
 
 logger = logging.getLogger(__name__)
 
+PreferenceRecorder = Callable[[RecommendationFeedback, dict[str, Any] | None], None]
 
-def save_recommendation_result(result: dict[str, Any]) -> RecommendationRecord:
+
+def save_recommendation_result(config: RuntimeConfig, result: dict[str, Any]) -> RecommendationRecord:
     """Сохраняет результат рекомендации в историю.
 
     Args:
+        config: Runtime-настройки приложения.
         result: Нормализованный результат `recommend_media_data`.
 
     Returns:
         Сохранённую recommendation-запись.
     """
     record = RecommendationRecord.model_validate(result)
-    data: dict[str, Any] = read_json(backend_settings.recommendations_file, {"items": []})
-    items = [item for item in data.get("items", []) if item.get("id") != record.id]
-    items.append(record.model_dump(mode="json"))
-    data["items"] = items
-    write_json(backend_settings.recommendations_file, data)
+    RecommendationRepository(config.backend.recommendations_file).save(record)
     logger.info(
         "Recommendation saved",
         extra={"recommendation_id": record.id, "candidate_count": len(record.candidates)},
@@ -37,28 +38,32 @@ def save_recommendation_result(result: dict[str, Any]) -> RecommendationRecord:
     return record
 
 
-def get_recommendation_record(recommendation_id: str) -> RecommendationRecord | None:
+def get_recommendation_record(config: RuntimeConfig, recommendation_id: str) -> RecommendationRecord | None:
     """Возвращает сохранённую рекомендацию по id.
 
     Args:
+        config: Runtime-настройки приложения.
         recommendation_id: Идентификатор recommendation-записи.
 
     Returns:
         Recommendation-запись либо `None`, если она не найдена.
     """
-    data: dict[str, Any] = read_json(backend_settings.recommendations_file, {"items": []})
-    for item in data.get("items", []):
-        if item.get("id") == recommendation_id:
-            return RecommendationRecord.model_validate(item)
-    return None
+    return RecommendationRepository(config.backend.recommendations_file).get(recommendation_id)
 
 
-def apply_recommendation_feedback(recommendation_id: str, action: str) -> dict[str, Any]:
+def apply_recommendation_feedback(
+    config: RuntimeConfig,
+    recommendation_id: str,
+    action: str,
+    record_preference: PreferenceRecorder,
+) -> dict[str, Any]:
     """Сохраняет feedback и обновляет learned-предпочтения пользователя.
 
     Args:
+        config: Runtime-настройки приложения.
         recommendation_id: Идентификатор рекомендации из Telegram callback.
         action: Feedback-действие пользователя.
+        record_preference: Инъецируемая функция записи семантической памяти.
 
     Returns:
         Сводку результата обработки feedback.
@@ -67,7 +72,7 @@ def apply_recommendation_feedback(recommendation_id: str, action: str) -> dict[s
         ValueError: Если recommendation id или action некорректны.
     """
     parsed_action = parse_feedback_action(action)
-    record = get_recommendation_record(recommendation_id)
+    record = get_recommendation_record(config, recommendation_id)
     if record is None:
         raise ValueError(f"Recommendation not found: {recommendation_id}")
 
@@ -80,12 +85,13 @@ def apply_recommendation_feedback(recommendation_id: str, action: str) -> dict[s
         title=_candidate_text(top_candidate, "title"),
         source=_candidate_text(top_candidate, "source"),
     )
-    _save_feedback(feedback)
-    _apply_feedback_to_profile(feedback=feedback, candidate=top_candidate)
+    _save_feedback(config, feedback)
+    _apply_feedback_to_profile(config, feedback=feedback, candidate=top_candidate, record_preference=record_preference)
 
     watchlist_item: dict[str, Any] | None = None
     if parsed_action == "watchlist" and top_candidate is not None:
         watchlist_item = add_to_watchlist_data(
+            config,
             title=_candidate_text(top_candidate, "title") or "Untitled recommendation",
             media_type=_media_type_from_category(record.category),
             url=_candidate_text(top_candidate, "url"),
@@ -105,40 +111,33 @@ def apply_recommendation_feedback(recommendation_id: str, action: str) -> dict[s
     }
 
 
-def _save_feedback(feedback: RecommendationFeedback) -> None:
+def _save_feedback(config: RuntimeConfig, feedback: RecommendationFeedback) -> None:
     """Добавляет feedback-событие в хранилище."""
-    data: dict[str, Any] = read_json(backend_settings.feedback_file, {"items": []})
-    data["items"].append(feedback.model_dump(mode="json"))
-    write_json(backend_settings.feedback_file, data)
+    FeedbackRepository(config.backend.feedback_file).append(feedback)
 
 
-def _apply_feedback_to_profile(feedback: RecommendationFeedback, candidate: dict[str, Any] | None) -> None:
+def _apply_feedback_to_profile(
+    config: RuntimeConfig,
+    feedback: RecommendationFeedback,
+    candidate: dict[str, Any] | None,
+    record_preference: PreferenceRecorder,
+) -> None:
     """Обновляет learned_preferences на основе feedback."""
-    profile: dict[str, Any] = read_json(backend_settings.profile_file, {})
-    learned = profile.setdefault("learned_preferences", {})
-    if not isinstance(learned, dict):
-        learned = {}
-        profile["learned_preferences"] = learned
-
-    weight = tool_settings.feedback_weights[feedback.action]
-    _bump_weight(learned, "categories", feedback.category, weight)
-    if feedback.source:
-        _bump_weight(learned, "sources", feedback.source, weight)
-
-    for tag in _candidate_tags(candidate):
-        _bump_weight(learned, "tags", tag, weight)
-
-    write_json(backend_settings.profile_file, profile)
-
-
-def _bump_weight(learned: dict[str, Any], section: str, key: str, delta: int) -> None:
-    """Изменяет числовой вес preference-секции."""
-    values = learned.setdefault(section, {})
-    if not isinstance(values, dict):
-        values = {}
-        learned[section] = values
-    current = values.get(key, 0)
-    values[key] = int(current if isinstance(current, int) else 0) + delta
+    weight = config.tools.feedback_weights[feedback.action]
+    ProfileRepository(config.backend.profile_file).learn(
+        category=feedback.category,
+        source=feedback.source,
+        tags=_candidate_tags(candidate),
+        weight=weight,
+    )
+    try:
+        record_preference(feedback, candidate)
+    except Exception:
+        logger.warning(
+            "Failed to record preference note",
+            extra={"recommendation_id": feedback.recommendation_id, "action": feedback.action},
+            exc_info=True,
+        )
 
 
 def _top_candidate(record: RecommendationRecord) -> dict[str, Any] | None:

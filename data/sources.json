@@ -29,6 +29,168 @@
       "category": "movies_series",
       "language": "en",
       "url": "https://www.indiewire.com/feed/"
+    },
+    {
+      "name": "Волшебный сундучок (Telegram)",
+      "category": "games",
+      "language": "ru",
+      "url": "{rss_bridge}/?action=display&bridge=TelegramBridge&username=found_sunduchok&format=Atom"
+    },
+    {
+      "name": "DTF Best (Telegram)",
+      "category": "mixed",
+      "language": "ru",
+      "url": "{rss_bridge}/?action=display&bridge=TelegramBridge&username=dtfbest&format=Atom"
+    },
+    {
+      "name": "PC Gamer",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.pcgamer.com/rss/"
+    },
+    {
+      "name": "Eurogamer",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.eurogamer.net/feed"
+    },
+    {
+      "name": "Rock Paper Shotgun",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.rockpapershotgun.com/feed"
+    },
+    {
+      "name": "Polygon",
+      "category": "mixed",
+      "language": "en",
+      "url": "https://www.polygon.com/feed/"
+    },
+    {
+      "name": "Kotaku",
+      "category": "games",
+      "language": "en",
+      "url": "https://kotaku.com/feed"
+    },
+    {
+      "name": "GameSpot",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.gamespot.com/feeds/mashup/"
+    },
+    {
+      "name": "Destructoid",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.destructoid.com/feed/"
+    },
+    {
+      "name": "Variety",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://variety.com/feed/"
+    },
+    {
+      "name": "The Hollywood Reporter",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://www.hollywoodreporter.com/feed/"
+    },
+    {
+      "name": "Collider",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://collider.com/feed/"
+    },
+    {
+      "name": "Slash Film",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://www.slashfilm.com/feed/"
+    },
+    {
+      "name": "Deadline",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://deadline.com/feed/"
+    },
+    {
+      "name": "Screen Rant",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://screenrant.com/feed/"
+    },
+    {
+      "name": "StopGame - обзоры",
+      "category": "games",
+      "language": "ru",
+      "url": "https://rss.stopgame.ru/rss_review.xml"
+    },
+    {
+      "name": "Eurogamer Reviews",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.eurogamer.net/feed/reviews"
+    },
+    {
+      "name": "Rock Paper Shotgun Reviews",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.rockpapershotgun.com/feed/reviews"
+    },
+    {
+      "name": "GameSpot Reviews",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.gamespot.com/feeds/reviews/"
+    },
+    {
+      "name": "Destructoid Reviews",
+      "category": "games",
+      "language": "en",
+      "url": "https://www.destructoid.com/category/reviews/feed/"
+    },
+    {
+      "name": "Roger Ebert Reviews",
+      "category": "movies",
+      "language": "en",
+      "url": "https://www.rogerebert.com/reviews/feed"
+    },
+    {
+      "name": "Variety Film Reviews",
+      "category": "movies",
+      "language": "en",
+      "url": "https://variety.com/v/film/reviews/feed/"
+    },
+    {
+      "name": "Anime News Network",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://www.animenewsnetwork.com/news/rss.xml"
+    },
+    {
+      "name": "MyAnimeList News",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://myanimelist.net/rss/news.xml"
+    },
+    {
+      "name": "Anime Corner",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://animecorner.me/feed/"
+    },
+    {
+      "name": "Anime Trending",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://www.anitrendz.net/news/feed/"
+    },
+    {
+      "name": "Honey's Anime",
+      "category": "movies_series",
+      "language": "en",
+      "url": "https://honeysanime.com/feed/"
     }
   ]
 }

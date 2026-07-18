@@ -15,11 +15,15 @@ MVP-сервис рекомендаций по играм, фильмам и с�
 Код сервиса лежит в `src`:
 
 - `app` - backend/runtime: Telegram bot, logging и backend settings.
-- `domain` - доменные модели и локальное JSON-хранилище.
+- `domain` - доменные модели, repositories и локальное атомарное JSON-хранилище с межпроцессными блокировками.
 - `llm_core` - нейтральный LLM-слой: settings, client factory, provider adapters и prompts.
 - `mcp_server` - MCP server entrypoint.
 - `mcp_tools` - runtime MCP tools и recommendation pipeline.
 - `rss_feeds` - RSS fetch слой и RSS settings.
+
+Runtime-настройки собираются один раз в `RuntimeConfig` внутри entrypoint. `WatchQuestApplication`
+служит composition root: создаёт LLM, memory и recommendation services и передаёт зависимости явно,
+без module-level singleton settings и monkeypatch глобального состояния в тестах.
 
 Текущая observability-модель:
 
@@ -151,6 +155,39 @@ recommend_media (CHAIN)
 
 Это удобно, когда нужно увидеть не только то, что выполнилось, но и какие MCP-возможности в данном запросе не участвовали.
 
+## Graph Memory (Mem0 + Memgraph)
+
+Опциональная графовая память предпочтений пользователя: feedback-события (`like` / `dislike` / `watchlist` / `block_similar`) записываются в [Mem0](https://github.com/mem0ai/mem0) (embedded-библиотека внутри процесса, без отдельного Mem0-сервера) с Memgraph как graph store и локальным Chroma (`data/mem0_chroma/`) как vector store. При `recommend_media` кандидаты получают знаковый `preference_memory_score` по релевантным воспоминаниям.
+
+Memgraph запускается отдельным compose-файлом:
+
+```bash
+docker compose -f compose/docker-compose.memgraph.yml up -d
+```
+
+Затем включить фичу в `.env`:
+
+```env
+TOOLS_MEMORY_ENABLED=true
+MEMGRAPH_URL=bolt://localhost:7687
+MEMGRAPH_USERNAME=memgraph
+MEMGRAPH_PASSWORD=
+```
+
+Важно:
+
+- фича выключена по умолчанию (`TOOLS_MEMORY_ENABLED=false`); при выключенной фиче memory-score всегда пустой и никаких подключений к Memgraph не происходит;
+- требуется поднятый Memgraph **и** рабочий `LLM_API_KEY` — Mem0 сам делает LLM-вызовы (entity/fact extraction) и embedding-вызовы на каждую запись feedback через тот же OpenAI-совместимый endpoint, что и остальной проект;
+- Mem0 требует непустые `username`/`password` для Memgraph; контейнер без включённой авторизации игнорирует их, поэтому при пустых значениях подставляется безопасный fallback `memgraph`;
+- любой сбой Mem0/Memgraph/Chroma обрабатывается fail-soft: feedback и рекомендации продолжают работать, память просто не участвует;
+- флаг независим от `TOOLS_RAG_ENABLED` (семантический RSS-retrieval) — это разные фичи.
+
+Для Docker-сценария compose контейнеров сам прокидывает container-friendly endpoint:
+
+```env
+MEMGRAPH_URL=bolt://host.docker.internal:7687
+```
+
 ## MCP client
 
 ```json
@@ -176,6 +213,7 @@ recommend_media (CHAIN)
 - `list_watchlist`
 - `rate_watchlist_item`
 - `recommend_media`
+- `import_myshows_history`
 
 ## Проверки
 
